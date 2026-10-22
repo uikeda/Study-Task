@@ -336,14 +336,22 @@
   const importText = document.getElementById('import-text');
   const preview = document.getElementById('import-preview');
 
-  document.getElementById('btn-copy-text').addEventListener('click', async () => {
-    const status = document.getElementById('copy-status');
+  async function copyText(text, statusId, failMessage) {
+    const status = document.getElementById(statusId);
     try {
-      await navigator.clipboard.writeText(TF.serialize(state, today()));
+      await navigator.clipboard.writeText(text);
       status.textContent = 'コピーしました。チャットに貼り付けてください。';
     } catch (err) {
-      status.textContent = 'コピーできませんでした。「ファイルに保存」を使ってください。';
+      status.textContent = failMessage;
     }
+  }
+
+  document.getElementById('btn-copy-text').addEventListener('click', () => {
+    copyText(TF.serialize(state, today()), 'copy-status', 'コピーできませんでした。「ファイルに保存」を使ってください。');
+  });
+
+  document.getElementById('btn-copy-prompt').addEventListener('click', () => {
+    copyText(TF.planningPrompt(today()), 'prompt-status', 'コピーできませんでした。README のプロンプトを使ってください。');
   });
 
   document.getElementById('btn-save-text').addEventListener('click', () => {

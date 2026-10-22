@@ -57,6 +57,15 @@
       <p class="note">Claude などのチャットで立てた計画をアプリに取り込んだり、アプリの状況をチャットに渡して計画を見直してもらったりできます。</p>
 
       <div class="panel">
+        <h3>計画をチャットで新しく作る</h3>
+        <p class="note">今日の日付と出力形式を指定したプロンプトをコピーします。新しいチャットに貼り付け、末尾の「私の状況」に目標や教材を書き足して送ってください。返ってきたコードブロックの中身を下の「2. チャット → アプリ」に貼り付けます。</p>
+        <div class="btn-row">
+          <button class="primary" id="btn-copy-prompt">プロンプトをコピー</button>
+        </div>
+        <p class="status-msg" id="prompt-status" role="status"></p>
+      </div>
+
+      <div class="panel">
         <h3>1. アプリ → チャット</h3>
         <p class="note">現在のタスクと進捗をテキストにします。書式の説明も含まれるので、そのままチャットに貼り付けて「この計画を見直して、同じ書式で返して」などと頼んでください。</p>
         <div class="btn-row">

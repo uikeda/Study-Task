@@ -159,3 +159,33 @@ test('id が重複しているとエラー', () => {
   const text = '## A\n- id: x\n- 量: 1 問\n- 期限: 2026-11-01\n\n## B\n- id: x\n- 量: 1 問\n- 期限: 2026-11-01';
   assert.match(T.parse(text, TODAY).errors[0].message, /重複/);
 });
+
+test('計画づくりプロンプトに今日の日付が入り、出力例がそのまま読み込める', () => {
+  const prompt = T.planningPrompt(TODAY);
+  assert.match(prompt, /今日は 2026-10-22 です/);
+  const example = prompt.match(/```\n([\s\S]*?)```/)[1];
+  const { tasks, errors } = T.parse(example, TODAY);
+  assert.deepEqual(errors, []);
+  assert.equal(tasks.length, 2);
+  assert.equal(tasks[0].deadline, '2026-11-21');
+  assert.equal(tasks[1].done, 300);
+});
+
+test('返信を丸ごと貼り付けても、コードブロックの中だけを読む', () => {
+  const reply = `計画を立てました。
+
+## 方針
+- 量: 多め
+
+\`\`\`markdown
+## 化学 重要問題集
+- 量: 60 問
+- 期限: 2026-11-10
+\`\`\`
+
+## 補足
+平日は1日1時間です。`;
+  const { tasks, errors } = T.parse(reply, TODAY);
+  assert.deepEqual(errors, []);
+  assert.deepEqual(tasks.map((t) => t.title), ['化学 重要問題集']);
+});
