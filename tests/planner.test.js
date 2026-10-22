@@ -89,3 +89,23 @@ test('月をまたぐ日付計算', () => {
   assert.equal(P.addDays('2026-10-31', 1), '2026-11-01');
   assert.equal(P.diffDays('2026-12-30', '2027-01-02'), 3);
 });
+
+test('dailyAmounts は過去=実績、今日=ノルマ、未来=予定量を返す', () => {
+  const logs = { '2026-10-03': { t1: 7 } };
+  const r = P.dailyAmounts(makeTask(), logs, '2026-10-04', '2026-10-02', '2026-10-05');
+  assert.deepEqual(r['2026-10-02'], { type: 'done', amount: 0 });
+  assert.deepEqual(r['2026-10-03'], { type: 'done', amount: 7 });
+  // 残り93を10/4〜10/10の7日に配分 → 14,13,13,...
+  assert.deepEqual(r['2026-10-04'], { type: 'today', amount: 14, done: 0 });
+  assert.deepEqual(r['2026-10-05'], { type: 'plan', amount: 13 });
+});
+
+test('upcomingEvents は過ぎた予定を除き、近い順に残り日数を付ける', () => {
+  const events = [
+    { id: 'a', title: '共通テスト', date: '2027-01-16' },
+    { id: 'b', title: '模試', date: '2026-11-01' },
+    { id: 'c', title: '終わった模試', date: '2026-10-01' },
+  ];
+  const r = P.upcomingEvents(events, '2026-10-22');
+  assert.deepEqual(r.map((e) => [e.id, e.daysLeft]), [['b', 10], ['a', 86]]);
+});

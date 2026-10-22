@@ -200,7 +200,7 @@
   // 解析結果を現在の状態に当てはめた新しい状態と、変更点の一覧を返す（元の state は変更しない）。
   // 「済」の増加は今日の実績として記録し、減少は adjust（補正値）で差し引く。
   function applyImport(state, parsed, today, newId) {
-    const next = { tasks: [], logs: JSON.parse(JSON.stringify(state.logs)) };
+    const next = { ...state, tasks: [], logs: JSON.parse(JSON.stringify(state.logs)) };
     const changes = { added: [], updated: [], removed: [], unchanged: 0 };
     const byId = new Map(state.tasks.map((t) => [t.id, t]));
     const kept = new Set();

@@ -21,11 +21,14 @@
   function load() {
     try {
       const data = JSON.parse(localStorage.getItem(STORAGE_KEY));
-      if (data && Array.isArray(data.tasks) && data.logs) return data;
+      if (data && Array.isArray(data.tasks) && data.logs) {
+        if (!Array.isArray(data.events)) data.events = [];
+        return data;
+      }
     } catch (e) {
       console.warn('保存データを読み込めませんでした', e);
     }
-    return { tasks: [], logs: {} };
+    return { tasks: [], logs: {}, events: [] };
   }
 
   function save() {
@@ -50,7 +53,7 @@
   function deadlineText(a) {
     if (a.daysToDeadline < 0) return `期限を${-a.daysToDeadline}日過ぎています`;
     if (a.daysToDeadline === 0) return '今日が期限';
-    return `期限まで${a.daysToDeadline}日（学習日 残り${a.studyDaysLeft}日）`;
+    return `期限まで${a.daysToDeadline}日（今日を含む学習日 残り${a.studyDaysLeft}日）`;
   }
 
   function bar(ratio, good) {
@@ -187,6 +190,8 @@
     renderToday();
     renderTasks();
     renderWeek();
+    renderCountdown();
+    renderCalendar();
   }
 
   // ---------- 追加・編集ダイアログ ----------
@@ -322,12 +327,206 @@
       const data = JSON.parse(await file.text());
       if (!Array.isArray(data.tasks) || typeof data.logs !== 'object') throw new Error('形式が違います');
       if (!confirm('現在のデータを読み込んだデータで置き換えますか？')) return;
-      state = { tasks: data.tasks, logs: data.logs };
+      state = { tasks: data.tasks, logs: data.logs, events: Array.isArray(data.events) ? data.events : [] };
       save();
       renderAll();
     } catch (err) {
       alert(`読み込みに失敗しました: ${err.message}`);
     }
+  });
+
+  // ---------- 試験・模試のカウントダウン ----------
+
+  const KIND_LABEL = { exam: '本番', mock: '模試', other: 'その他' };
+
+  function renderCountdown() {
+    const upcoming = P.upcomingEvents(state.events, today());
+    // 一番近い「本番」を大きく表示し、ほかは近い順に最大3件
+    const main = upcoming.find((e) => e.kind === 'exam');
+    const others = upcoming.filter((e) => e !== main).slice(0, 3);
+    const items = (main ? [main] : []).concat(others);
+    const html = items.map((e) => `
+      <button class="cd-item ${e.kind}${e === main ? ' main' : ''}" data-date="${e.date}">
+        <span class="cd-title"><strong>${esc(e.title)}</strong><br><span class="cd-date">${KIND_LABEL[e.kind]} ・ ${fmtDate(e.date)}</span></span>
+        <span class="cd-days">${e.daysLeft === 0 ? '<strong>今日</strong>' : `あと<strong>${e.daysLeft}</strong>日`}</span>
+      </button>`).join('');
+    document.getElementById('countdown-today').innerHTML = html;
+    document.getElementById('countdown-calendar').innerHTML = html;
+  }
+
+  document.querySelectorAll('.countdown').forEach((el) => {
+    el.addEventListener('click', (e) => {
+      const item = e.target.closest('.cd-item');
+      if (!item) return;
+      selectDate(item.dataset.date);
+      showView('calendar');
+    });
+  });
+
+  // ---------- カレンダー ----------
+
+  let calMonth = today().slice(0, 8) + '01'; // 表示中の月の1日
+  let selectedDate = today();
+
+  function selectDate(date) {
+    selectedDate = date;
+    calMonth = date.slice(0, 8) + '01';
+  }
+
+  function eventsOn(date) {
+    return state.events.filter((e) => e.date === date);
+  }
+
+  function renderCalendar() {
+    const t = today();
+    const first = P.parseDate(calMonth);
+    document.getElementById('cal-title').textContent = `${first.getFullYear()}年${first.getMonth() + 1}月`;
+
+    // 日曜始まりで6週分（前後の月の日も含めて表示）
+    const start = P.addDays(calMonth, -first.getDay());
+    const end = P.addDays(start, 41);
+    const amounts = state.tasks.map((task) => P.dailyAmounts(task, state.logs, t, start, end));
+
+    let html = WEEKDAYS.map((w, i) => `<div class="cal-dow${i === 0 ? ' sun' : i === 6 ? ' sat' : ''}">${w}</div>`).join('');
+    for (let i = 0; i < 42; i++) {
+      const d = P.addDays(start, i);
+      const date = P.parseDate(d);
+      const dow = date.getDay();
+      const cls = ['cal-day'];
+      if (d.slice(0, 7) !== calMonth.slice(0, 7)) cls.push('outside');
+      if (d === t) cls.push('today');
+      if (d === selectedDate) cls.push('selected');
+      if (dow === 0) cls.push('sun');
+      if (dow === 6) cls.push('sat');
+
+      const day = amounts.map((a) => a[d]);
+      const count = day.filter((a) => a.amount > 0).length;
+      let countHtml = '';
+      if (d === t) {
+        const met = count > 0 && day.every((a) => a.done >= a.amount);
+        countHtml = count ? `<span class="count${met ? ' met' : ''}">${met ? '✓' : ''}${count}件</span>` : '';
+      } else if (count) {
+        countHtml = `<span class="count${d < t ? ' met' : ''}">${d < t ? '✓' : ''}${count}件</span>`;
+      }
+      const chips = eventsOn(d).map((e) => `<span class="chip ${e.kind}">${esc(e.title)}</span>`).join('');
+      html += `<button class="${cls.join(' ')}" data-date="${d}" aria-label="${fmtDate(d)}"><span class="num">${date.getDate()}</span>${chips}${countHtml}</button>`;
+    }
+    document.getElementById('cal-grid').innerHTML = html;
+    renderDayDetail();
+  }
+
+  function renderDayDetail() {
+    const t = today();
+    const d = selectedDate;
+    const rows = [];
+    for (const task of state.tasks) {
+      const a = P.dailyAmounts(task, state.logs, t, d, d)[d];
+      const unit = esc(task.unit);
+      let amount = '';
+      if (a.type === 'done' && a.amount > 0) amount = `${a.amount} ${unit} やった`;
+      else if (a.type === 'today' && (a.amount > 0 || a.done > 0)) amount = `${a.done} / ${a.amount} ${unit}`;
+      else if (a.type === 'plan' && a.amount > 0) amount = `${a.amount} ${unit}（予定）`;
+      const isDeadline = task.deadline === d;
+      if (!amount && !isDeadline) continue;
+      rows.push(`<li><span>${titleHtml(task)}${isDeadline ? '<span class="deadline">この日が期限</span>' : ''}</span><span class="amount">${amount}</span></li>`);
+    }
+
+    let note = '';
+    if (d < t) note = 'この日に記録した実績です。';
+    else if (d === t) note = '今日のノルマと実績です。記録は「今日」タブから。';
+    else note = '今日のノルマを達成し、以降も計画どおり進めた場合の予定量です。';
+
+    const events = eventsOn(d).map((e) => `
+      <div class="event-row ${e.kind}">
+        <div class="grow"><strong>${esc(e.title)}</strong>（${KIND_LABEL[e.kind]}）${e.memo ? `<div class="meta">${esc(e.memo)}</div>` : ''}
+          <div class="meta">${d >= t ? (d === t ? '今日です' : `あと${P.diffDays(t, d)}日`) : '終了'}</div></div>
+        <button data-action="edit-event" data-id="${e.id}">編集</button>
+      </div>`).join('');
+
+    document.getElementById('day-detail').innerHTML = `
+      <h3>${fmtDate(d)}${d === t ? '（今日）' : ''}</h3>
+      ${events}
+      ${rows.length ? `<p class="note">${note}</p><ul class="day-list">${rows.join('')}</ul>` : '<p class="note">この日のタスクはありません。</p>'}
+      <div class="btn-row"><button data-action="add-event">＋ この日に試験・模試を追加</button></div>`;
+  }
+
+  document.getElementById('cal-grid').addEventListener('click', (e) => {
+    const cell = e.target.closest('.cal-day');
+    if (!cell) return;
+    selectDate(cell.dataset.date);
+    renderCalendar();
+    document.getElementById('day-detail').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  });
+
+  function moveMonth(n) {
+    const date = P.parseDate(calMonth);
+    date.setMonth(date.getMonth() + n);
+    calMonth = P.formatDate(date);
+    renderCalendar();
+  }
+  document.getElementById('cal-prev').addEventListener('click', () => moveMonth(-1));
+  document.getElementById('cal-next').addEventListener('click', () => moveMonth(1));
+  document.getElementById('cal-today').addEventListener('click', () => {
+    selectDate(today());
+    renderCalendar();
+  });
+
+  document.getElementById('day-detail').addEventListener('click', (e) => {
+    const action = e.target.dataset.action;
+    if (action === 'add-event') openEventDialog(null, selectedDate);
+    if (action === 'edit-event') openEventDialog(state.events.find((x) => x.id === e.target.dataset.id));
+  });
+
+  // ---------- 試験・模試ダイアログ ----------
+
+  const eventDialog = document.getElementById('event-dialog');
+  const eventForm = document.getElementById('event-form');
+  let editingEventId = null;
+
+  function openEventDialog(ev, date) {
+    editingEventId = ev ? ev.id : null;
+    eventForm.reset();
+    document.getElementById('event-form-error').textContent = '';
+    document.getElementById('event-dialog-title').textContent = ev ? '試験・模試を編集' : '試験・模試を追加';
+    document.getElementById('btn-event-delete').hidden = !ev;
+    const values = ev || { title: '', date, kind: 'mock', memo: '' };
+    eventForm.elements.title.value = values.title;
+    eventForm.elements.date.value = values.date;
+    eventForm.elements.memo.value = values.memo || '';
+    eventForm.querySelector(`input[name="kind"][value="${values.kind}"]`).checked = true;
+    eventDialog.showModal();
+  }
+
+  eventForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const f = eventForm.elements;
+    const ev = {
+      title: f.title.value.trim(),
+      date: f.date.value,
+      kind: eventForm.querySelector('input[name="kind"]:checked').value,
+      memo: f.memo.value.trim(),
+    };
+    if (!ev.title || !ev.date) {
+      document.getElementById('event-form-error').textContent = '名前と日付を入力してください。';
+      return;
+    }
+    if (editingEventId) Object.assign(state.events.find((x) => x.id === editingEventId), ev);
+    else state.events.push({ id: newId(), ...ev });
+    save();
+    eventDialog.close();
+    selectDate(ev.date);
+    renderAll();
+  });
+
+  document.getElementById('btn-event-cancel').addEventListener('click', () => eventDialog.close());
+
+  document.getElementById('btn-event-delete').addEventListener('click', () => {
+    const ev = state.events.find((x) => x.id === editingEventId);
+    if (!ev || !confirm(`「${ev.title}」を削除しますか？`)) return;
+    state.events = state.events.filter((x) => x.id !== editingEventId);
+    save();
+    eventDialog.close();
+    renderAll();
   });
 
   // ---------- テキスト連携 ----------

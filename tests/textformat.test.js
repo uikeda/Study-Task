@@ -189,3 +189,9 @@ test('返信を丸ごと貼り付けても、コードブロックの中だけ�
   assert.deepEqual(errors, []);
   assert.deepEqual(tasks.map((t) => t.title), ['化学 重要問題集']);
 });
+
+test('テキストの読み込みで試験・模試の予定は消えない', () => {
+  const state = { ...sampleState(), events: [{ id: 'e1', title: '模試', date: '2026-11-01', kind: 'mock' }] };
+  const { state: next } = T.applyImport(state, T.parse(T.serialize(state, TODAY), TODAY), TODAY, newId);
+  assert.deepEqual(next.events, state.events);
+});

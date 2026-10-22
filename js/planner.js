@@ -160,7 +160,35 @@
     return result;
   }
 
+  // from〜to の各日について、そのタスクの量を返す。
+  // 過去: 実際にやった量（done）、今日: ノルマと実績（today）、未来: 計画どおり進めた場合の予定量（plan）
+  function dailyAmounts(task, logs, today, from, to) {
+    const result = {};
+    const plan = to > today ? forecast(task, logs, today, diffDays(today, to) + 1) : {};
+    for (let d = from; d <= to; d = addDays(d, 1)) {
+      if (d < today) {
+        result[d] = { type: 'done', amount: doneOn(task, logs, d) };
+      } else if (d === today) {
+        const a = analyzeTask(task, logs, today);
+        result[d] = { type: 'today', amount: a.quota, done: a.doneToday };
+      } else {
+        result[d] = { type: 'plan', amount: plan[d] || 0 };
+      }
+    }
+    return result;
+  }
+
+  // 今日以降の試験・模試を近い順に、残り日数付きで返す
+  function upcomingEvents(events, today) {
+    return events
+      .filter((e) => e.date >= today)
+      .map((e) => ({ ...e, daysLeft: diffDays(today, e.date) }))
+      .sort((a, b) => a.daysLeft - b.daysLeft);
+  }
+
   const Planner = {
+    dailyAmounts,
+    upcomingEvents,
     parseDate,
     formatDate,
     addDays,
