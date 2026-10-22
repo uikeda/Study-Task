@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Study Task</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="app-header">
+    <h1>Study Task</h1>
+    <nav class="tabs" role="tablist">
+      <button class="tab active" data-view="today" role="tab">今日</button>
+      <button class="tab" data-view="tasks" role="tab">タスク</button>
+      <button class="tab" data-view="week" role="tab">週間予定</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- 今日のタスク -->
+    <section id="view-today" class="view active">
+      <div class="today-head">
+        <h2 id="today-label"></h2>
+        <div class="summary" id="today-summary"></div>
+      </div>
+      <ul class="card-list" id="today-list"></ul>
+      <p class="empty" id="today-empty" hidden>今日のノルマはありません。<button class="link" data-goto="tasks">タスクを追加</button></p>
+    </section>
+
+    <!-- タスク一覧 -->
+    <section id="view-tasks" class="view">
+      <div class="section-head">
+        <h2>タスク一覧</h2>
+        <button class="primary" id="btn-add">＋ タスクを追加</button>
+      </div>
+      <ul class="card-list" id="task-list"></ul>
+      <p class="empty" id="tasks-empty" hidden>まだタスクがありません。「＋ タスクを追加」から登録してください。</p>
+      <details class="data-tools">
+        <summary>データのバックアップ</summary>
+        <p>データはこのブラウザ内（localStorage）に保存されます。別の端末へ移すときや念のための保存に使ってください。</p>
+        <button id="btn-export">書き出し（JSON）</button>
+        <label class="file-btn">読み込み<input type="file" id="input-import" accept="application/json"></label>
+      </details>
+    </section>
+
+    <!-- 週間予定 -->
+    <section id="view-week" class="view">
+      <h2>これから7日間の予定量</h2>
+      <p class="note">今日のノルマを達成し、以降も計画どおり進めた場合の見込みです。</p>
+      <div class="table-wrap"><table id="week-table"></table></div>
+    </section>
+  </main>
+
+  <!-- タスク追加・編集ダイアログ -->
+  <dialog id="task-dialog">
+    <form id="task-form" method="dialog">
+      <h2 id="dialog-title">タスクを追加</h2>
+      <label>タスク名<input name="title" required maxlength="60" placeholder="例: 英単語ターゲット1900"></label>
+      <label>科目・カテゴリ<input name="subject" maxlength="30" placeholder="例: 英語"></label>
+      <div class="row">
+        <label>全体量<input name="total" type="number" min="1" step="1" required></label>
+        <label>単位<input name="unit" maxlength="10" value="ページ" required></label>
+      </div>
+      <label>すでに終えた量<input name="initialDone" type="number" min="0" step="1" value="0"></label>
+      <div class="row">
+        <label>開始日<input name="startDate" type="date" required></label>
+        <label>期限<input name="deadline" type="date" required></label>
+      </div>
+      <fieldset>
+        <legend>学習する曜日</legend>
+        <div class="weekdays" id="weekday-checks"></div>
+      </fieldset>
+      <p class="form-error" id="form-error" role="alert"></p>
+      <div class="dialog-actions">
+        <button type="button" class="danger" id="btn-delete" hidden>削除</button>
+        <span class="spacer"></span>
+        <button type="button" id="btn-cancel">キャンセル</button>
+        <button type="submit" class="primary">保存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="js/planner.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
