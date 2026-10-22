@@ -12,7 +12,8 @@
     <nav class="tabs" role="tablist">
       <button class="tab active" data-view="today" role="tab">今日</button>
       <button class="tab" data-view="tasks" role="tab">タスク</button>
-      <button class="tab" data-view="week" role="tab">週間予定</button>
+      <button class="tab" data-view="week" role="tab">週間</button>
+      <button class="tab" data-view="sync" role="tab">連携</button>
     </nav>
   </header>
 
@@ -49,6 +50,33 @@
       <p class="note">今日のノルマを達成し、以降も計画どおり進めた場合の見込みです。</p>
       <div class="table-wrap"><table id="week-table"></table></div>
     </section>
+
+    <!-- テキスト連携 -->
+    <section id="view-sync" class="view">
+      <h2>テキストで計画をやり取り</h2>
+      <p class="note">Claude などのチャットで立てた計画をアプリに取り込んだり、アプリの状況をチャットに渡して計画を見直してもらったりできます。</p>
+
+      <div class="panel">
+        <h3>1. アプリ → チャット</h3>
+        <p class="note">現在のタスクと進捗をテキストにします。書式の説明も含まれるので、そのままチャットに貼り付けて「この計画を見直して、同じ書式で返して」などと頼んでください。</p>
+        <div class="btn-row">
+          <button class="primary" id="btn-copy-text">テキストをコピー</button>
+          <button id="btn-save-text">ファイルに保存（.md）</button>
+        </div>
+        <p class="status-msg" id="copy-status" role="status"></p>
+      </div>
+
+      <div class="panel">
+        <h3>2. チャット → アプリ</h3>
+        <p class="note">チャットから返ってきたテキストを貼り付けるか、ファイルを開いてください。反映前に変更内容を確認できます。</p>
+        <textarea id="import-text" rows="10" placeholder="## タスク名&#10;- 量: 240 問&#10;- 期限: 2026-11-30&#10;- 曜日: 毎日"></textarea>
+        <div class="btn-row">
+          <button class="primary" id="btn-preview">内容を確認</button>
+          <label class="file-btn">ファイルを開く<input type="file" id="input-text-file" accept=".md,.txt,text/plain,text/markdown"></label>
+        </div>
+        <div id="import-preview" hidden></div>
+      </div>
+    </section>
   </main>
 
   <!-- タスク追加・編集ダイアログ -->
@@ -81,6 +109,7 @@
   </dialog>
 
   <script src="js/planner.js"></script>
+  <script src="js/textformat.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

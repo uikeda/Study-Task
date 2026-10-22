@@ -41,9 +41,15 @@
     return days;
   }
 
+  // 開始前に終えていた量 + テキスト取り込み時の減算補正（adjust）。
+  // adjust は当初ペースの計算には含めない。
+  function baseDone(task) {
+    return (task.initialDone || 0) + (task.adjust || 0);
+  }
+
   // date より前（date 当日を含まない）までの累計実績
   function doneBefore(task, logs, date) {
-    let sum = task.initialDone || 0;
+    let sum = baseDone(task);
     for (const [d, entries] of Object.entries(logs)) {
       if (d < date && entries[task.id]) sum += entries[task.id];
     }
@@ -55,7 +61,7 @@
   }
 
   function totalDone(task, logs) {
-    let sum = task.initialDone || 0;
+    let sum = baseDone(task);
     for (const entries of Object.values(logs)) {
       if (entries[task.id]) sum += entries[task.id];
     }

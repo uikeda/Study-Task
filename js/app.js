@@ -330,5 +330,83 @@
     }
   });
 
+  // ---------- テキスト連携 ----------
+
+  const TF = window.TextFormat;
+  const importText = document.getElementById('import-text');
+  const preview = document.getElementById('import-preview');
+
+  document.getElementById('btn-copy-text').addEventListener('click', async () => {
+    const status = document.getElementById('copy-status');
+    try {
+      await navigator.clipboard.writeText(TF.serialize(state, today()));
+      status.textContent = 'コピーしました。チャットに貼り付けてください。';
+    } catch (err) {
+      status.textContent = 'コピーできませんでした。「ファイルに保存」を使ってください。';
+    }
+  });
+
+  document.getElementById('btn-save-text').addEventListener('click', () => {
+    const blob = new Blob([TF.serialize(state, today())], { type: 'text/markdown' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `study-plan-${today()}.md`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+
+  document.getElementById('input-text-file').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    importText.value = await file.text();
+    showPreview();
+  });
+
+  document.getElementById('btn-preview').addEventListener('click', showPreview);
+  importText.addEventListener('input', () => { preview.hidden = true; });
+
+  function computeImport() {
+    const t = today();
+    const parsed = TF.parse(importText.value, t);
+    if (parsed.errors.length > 0) return { errors: parsed.errors };
+    return TF.applyImport(state, parsed, t, newId);
+  }
+
+  function nameList(names) {
+    return `<ul>${names.map((n) => `<li>${esc(n)}</li>`).join('')}</ul>`;
+  }
+
+  function showPreview() {
+    preview.hidden = false;
+    const result = computeImport();
+    if (result.errors) {
+      preview.innerHTML = `<div class="errors"><strong>読み込めない箇所があります。直してからもう一度確認してください。</strong>
+        <ul>${result.errors.map((e) => `<li>${e.line ? `${e.line}行目: ` : ''}${esc(e.message)}</li>`).join('')}</ul></div>`;
+      return;
+    }
+    const { added, updated, removed, unchanged } = result.changes;
+    if (added.length + updated.length + removed.length === 0) {
+      preview.innerHTML = `<p>変更はありません（${unchanged}件とも同じ内容です）。</p>`;
+      return;
+    }
+    preview.innerHTML = `
+      ${added.length ? `<strong>追加 ${added.length}件</strong>${nameList(added)}` : ''}
+      ${updated.length ? `<strong>変更 ${updated.length}件</strong>${nameList(updated)}` : ''}
+      ${removed.length ? `<div class="removed"><strong>削除 ${removed.length}件（記録も消えます）</strong>${nameList(removed)}</div>` : ''}
+      ${unchanged ? `<p>変更なし ${unchanged}件</p>` : ''}
+      <p class="note">「済」が増えたタスクは、増えた分を今日の実績として記録します。</p>
+      <div class="btn-row"><button class="primary" id="btn-apply">この内容で反映する</button></div>`;
+    document.getElementById('btn-apply').addEventListener('click', () => {
+      const latest = computeImport(); // 確認後に日付やデータが変わっていても最新の状態に当てはめる
+      if (latest.errors) return showPreview();
+      state = latest.state;
+      save();
+      importText.value = '';
+      preview.innerHTML = '<p>反映しました。</p>';
+      renderAll();
+    });
+  }
+
   renderAll();
 })();
