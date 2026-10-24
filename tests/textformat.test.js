@@ -195,3 +195,43 @@ test('テキストの読み込みで試験・模試の予定は消えない', ()
   const { state: next } = T.applyImport(state, T.parse(T.serialize(state, TODAY), TODAY), TODAY, newId);
   assert.deepEqual(next.events, state.events);
 });
+
+test('復習タグと復習元を書き出し、読み込むと元のタスクにひも付く', () => {
+  const state = sampleState();
+  state.tasks.push({
+    id: 'r1', title: '青チャート 復習1回目', subject: '数学', total: 240, unit: '問', initialDone: 0,
+    startDate: '2026-10-22', deadline: '2026-11-05', studyDays: [0, 1, 2, 3, 4, 5, 6], tags: ['復習'], reviewOf: 'a1',
+  });
+  const text = T.serialize(state, TODAY);
+  assert.match(text, /## 青チャート 復習1回目\n[\s\S]*?- タグ: 復習\n- 復習元: 青チャート数IA\n/);
+
+  // そのまま読み込めば変更なし
+  const same = T.applyImport(state, T.parse(text, TODAY), TODAY, newId);
+  assert.equal(same.changes.unchanged, 3);
+  const byId = (a, b) => a.id.localeCompare(b.id);
+  assert.deepEqual([...same.state.tasks].sort(byId), [...state.tasks].sort(byId));
+
+  // チャットで新しい復習タスクを足した場合（元のタスク名で指定）
+  const added = `${text}
+## 英単語 復習1回目
+- 量: 1900 語
+- 期限: 2026-11-30
+- タグ: 復習
+- 復習元: 英単語`;
+  const r = T.applyImport(state, T.parse(added, TODAY), TODAY, newId);
+  const t = r.state.tasks.find((x) => x.title === '英単語 復習1回目');
+  assert.deepEqual(t.tags, ['復習']);
+  assert.equal(t.reviewOf, 'b2');
+  assert.deepEqual(r.changes.added, ['英単語 復習1回目']);
+});
+
+test('タグを消すと復習タスクではなくなり、変更として数える', () => {
+  const state = sampleState();
+  state.tasks[1] = { ...state.tasks[1], tags: ['復習'], reviewOf: 'a1' };
+  const text = T.serialize(state, TODAY).replace('- タグ: 復習\n- 復習元: 青チャート数IA\n', '');
+  const r = T.applyImport(state, T.parse(text, TODAY), TODAY, newId);
+  assert.deepEqual(r.changes.updated, ['英単語']);
+  const b2 = r.state.tasks.find((x) => x.id === 'b2');
+  assert.equal(b2.tags, undefined);
+  assert.equal(b2.reviewOf, undefined);
+});

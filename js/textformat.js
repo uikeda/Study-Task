@@ -32,6 +32,8 @@
   - 開始: 開始日（YYYY-MM-DD）
   - 期限: 期限日（YYYY-MM-DD）
   - 曜日: 学習する曜日（例: 月火水木金、毎日、平日）
+  - タグ: 任意。復習のタスクには「復習」と書きます。
+  - 復習元: 復習タスクのとき、復習する元のタスク名（「## 」の後ろと同じ名前）
   - 状況: アプリが書き出す参考情報です。読み込み時は無視されます。
 - タスクを消すと、アプリからも削除されます。
 - 毎日のノルマはアプリが「残量 ÷ 期限までの学習日数」で自動計算するので、書く必要はありません。
@@ -68,6 +70,10 @@
     return /^\d+$/.test(s) ? Number(s) : NaN;
   }
 
+  function reviewSource(state, task) {
+    return task.reviewOf ? state.tasks.find((t) => t.id === task.reviewOf) : null;
+  }
+
   function serialize(state, today) {
     const tasks = [...state.tasks].sort((a, b) => a.deadline.localeCompare(b.deadline));
     const blocks = tasks.map((task) => {
@@ -83,6 +89,8 @@
         `- 開始: ${task.startDate}`,
         `- 期限: ${task.deadline}`,
         `- 曜日: ${formatWeekdays(task.studyDays)}`,
+        task.tags && task.tags.length ? `- タグ: ${task.tags.join(' ')}` : null,
+        reviewSource(state, task) ? `- 復習元: ${reviewSource(state, task).title}` : null,
         `- 状況: ${status}`,
       ];
       return lines.filter((l) => l !== null).join('\n');
@@ -153,6 +161,12 @@
         case '科目':
           current.subject = value;
           break;
+        case 'タグ':
+          current.tags = value.split(/[\s,、，・]+/).filter(Boolean);
+          break;
+        case '復習元':
+          if (value) current.reviewOf = value;
+          break;
         case '量': {
           const m = value.match(/^([0-9０-９,，]+)\s*(.+)$/);
           const total = m ? toNumber(m[1]) : NaN;
@@ -197,6 +211,11 @@
 
   const FIELDS = ['title', 'subject', 'total', 'unit', 'startDate', 'deadline'];
 
+  function setOptional(obj, key, value) {
+    if (value === undefined) delete obj[key];
+    else obj[key] = value;
+  }
+
   // 解析結果を現在の状態に当てはめた新しい状態と、変更点の一覧を返す（元の state は変更しない）。
   // 「済」の増加は今日の実績として記録し、減少は adjust（補正値）で差し引く。
   function applyImport(state, parsed, today, newId) {
@@ -204,6 +223,7 @@
     const changes = { added: [], updated: [], removed: [], unchanged: 0 };
     const byId = new Map(state.tasks.map((t) => [t.id, t]));
     const kept = new Set();
+    const resolved = [];
 
     for (const p of parsed.tasks) {
       const old = p.id && byId.get(p.id);
@@ -220,12 +240,14 @@
           deadline: p.deadline,
           studyDays: p.studyDays,
         });
+        resolved.push([next.tasks[next.tasks.length - 1], p, null]);
         changes.added.push(p.title);
         continue;
       }
 
       kept.add(old.id);
       const task = { ...old, subject: p.subject || '', studyDays: p.studyDays };
+      resolved.push([task, p, old]);
       for (const f of FIELDS) if (f !== 'subject' && p[f] !== undefined) task[f] = p[f];
 
       const diffs = [];
@@ -240,10 +262,21 @@
         task.adjust = (old.adjust || 0) + delta;
       }
       if (delta !== 0) diffs.push('done');
+      task.diffs = diffs;
 
       next.tasks.push(task);
-      if (diffs.length > 0) changes.updated.push(task.title);
+    }
+
+    // タグと復習元（タスク名で指定）は、全タスクの名前が確定してから当てはめる
+    for (const [task, p, old] of resolved) {
+      setOptional(task, 'tags', p.tags && p.tags.length ? p.tags : undefined);
+      const source = p.reviewOf && (next.tasks.find((t) => t.title === p.reviewOf && !P.isReview(t)) || next.tasks.find((t) => t.title === p.reviewOf && t !== task));
+      setOptional(task, 'reviewOf', source ? source.id : undefined);
+      if (!old) continue;
+      if ((old.tags || []).join() !== (task.tags || []).join() || old.reviewOf !== task.reviewOf) task.diffs.push('tags');
+      if (task.diffs.length > 0) changes.updated.push(task.title);
       else changes.unchanged++;
+      delete task.diffs;
     }
 
     for (const old of state.tasks) {
@@ -280,6 +313,9 @@
   - 開始: 開始日（省略すると今日）
   - 期限: 期限日（必須。開始日以降）
   - 曜日: 学習する曜日（例: 月水金、毎日、平日、土日。省略すると毎日）
+  - タグ: 復習のタスクには「復習」と書く（それ以外は省略）
+  - 復習元: 復習タスクのとき、復習する元のタスク名（「## 」の後ろと完全に同じ名前）
+- 終えた教材の復習は、元のタスクとは別に「タグ: 復習」のタスクとして作ってください（例: 「青チャート数IA 復習1回目」）。
 - 「id」の行は書かないでください（アプリが付けます）。
 - 毎日のノルマはアプリが「残量 ÷ 期限までの学習日数」で自動計算するので、書かないでください。
 - 量は数えられる単位にしてください。「1周」「全部」のような単位は避け、大きな教材は章や周回ごとに別のタスクに分けてかまいません（例: 「青チャート 1周目」「青チャート 2周目」）。

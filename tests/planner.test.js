@@ -109,3 +109,33 @@ test('upcomingEvents は過ぎた予定を除き、近い順に残り日数を�
   const r = P.upcomingEvents(events, '2026-10-22');
   assert.deepEqual(r.map((e) => [e.id, e.daysLeft]), [['b', 10], ['a', 86]]);
 });
+
+test('completedOn は累計が全体量に達した日を返す', () => {
+  const task = makeTask({ total: 10 });
+  assert.equal(P.completedOn(task, { '2026-10-02': { t1: 4 }, '2026-10-03': { t1: 6 }, '2026-10-04': { t1: 1 } }), '2026-10-03');
+  assert.equal(P.completedOn(task, { '2026-10-02': { t1: 4 } }), null);
+  assert.equal(P.completedOn(makeTask({ total: 10, initialDone: 10 }), {}), null);
+});
+
+test('reviewSummary は復習を回数順に並べ、最後の復習からの経過日数を出す', () => {
+  const source = makeTask({ id: 'src', total: 10, initialDone: 0 });
+  const r1 = makeTask({ id: 'r1', total: 10, tags: ['復習'], reviewOf: 'src', startDate: '2026-10-05' });
+  const r2 = makeTask({ id: 'r2', total: 10, tags: ['復習'], reviewOf: 'src', startDate: '2026-10-12', deadline: '2026-10-20' });
+  const other = makeTask({ id: 'x', tags: ['復習'], reviewOf: 'zzz' });
+  const logs = {
+    '2026-10-03': { src: 10 },
+    '2026-10-08': { r1: 10 },
+    '2026-10-13': { r2: 4 },
+  };
+  const s = P.reviewSummary(source, [r2, other, source, r1], logs, '2026-10-15');
+  assert.deepEqual(s.reviews.map((r) => [r.task.id, r.round, r.status]), [['r1', 1, 'done'], ['r2', 2, 'ahead']]);
+  assert.equal(s.completedCount, 1);
+  assert.equal(s.active.task.id, 'r2');
+  assert.equal(s.lastReviewedOn, '2026-10-08');
+  assert.equal(s.daysSince, 7);
+
+  // 復習がまだない場合は、元のタスクを終えた日からの日数
+  const none = P.reviewSummary(source, [source], logs, '2026-10-15');
+  assert.equal(none.reviews.length, 0);
+  assert.equal(none.daysSince, 12);
+});

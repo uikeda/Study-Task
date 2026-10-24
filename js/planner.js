@@ -186,7 +186,50 @@
       .sort((a, b) => a.daysLeft - b.daysLeft);
   }
 
+  const REVIEW_TAG = '復習';
+
+  function isReview(task) {
+    return (task.tags || []).includes(REVIEW_TAG);
+  }
+
+  // 累計が全体量に達した日。開始前の量や補正だけで達した場合など、日付が分からなければ null
+  function completedOn(task, logs) {
+    let sum = baseDone(task);
+    if (sum >= task.total) return null;
+    for (const d of Object.keys(logs).sort()) {
+      sum += logs[d][task.id] || 0;
+      if (sum >= task.total) return d;
+    }
+    return null;
+  }
+
+  // 元のタスクに対する復習タスクの一覧（開始日順に1回目, 2回目…）と、最後に復習を終えた日
+  function reviewSummary(source, tasks, logs, today) {
+    const reviews = tasks
+      .filter((t) => isReview(t) && t.reviewOf === source.id)
+      .sort((a, b) => a.startDate.localeCompare(b.startDate) || (a.createdAt || '').localeCompare(b.createdAt || ''))
+      .map((task, i) => {
+        const a = analyzeTask(task, logs, today);
+        return { task, round: i + 1, status: a.status, progress: a.progress, completedOn: a.status === 'done' ? completedOn(task, logs) : null };
+      });
+    const doneDates = reviews.map((r) => r.completedOn).filter(Boolean).sort();
+    const lastReviewedOn = doneDates.length ? doneDates[doneDates.length - 1] : null;
+    // 復習の起点: 最後に復習を終えた日。まだなら元のタスクを終えた日
+    const since = lastReviewedOn || completedOn(source, logs);
+    return {
+      reviews,
+      completedCount: reviews.filter((r) => r.status === 'done').length,
+      active: reviews.find((r) => r.status !== 'done') || null,
+      lastReviewedOn,
+      daysSince: since ? diffDays(since, today) : null,
+    };
+  }
+
   const Planner = {
+    REVIEW_TAG,
+    isReview,
+    completedOn,
+    reviewSummary,
     dailyAmounts,
     upcomingEvents,
     parseDate,

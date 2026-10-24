@@ -67,7 +67,8 @@
 
   function titleHtml(task) {
     const subject = task.subject ? `<span class="subject">${esc(task.subject)}</span>` : '';
-    return `<div class="card-title">${subject}${esc(task.title)}</div>`;
+    const tag = P.isReview(task) ? `<span class="tag">${P.REVIEW_TAG}</span>` : '';
+    return `<div class="card-title">${tag}${subject}${esc(task.title)}</div>`;
   }
 
   // ---------- 今日 ----------
@@ -137,7 +138,15 @@
     const order = { overdue: 0, behind: 1, onTrack: 2, ahead: 3, notStarted: 4, done: 5 };
     const items = state.tasks
       .map((task) => ({ task, a: P.analyzeTask(task, state.logs, t) }))
+      .filter(({ task, a }) => {
+        if (taskFilter === 'study') return !P.isReview(task) && a.status !== 'done';
+        if (taskFilter === 'review') return P.isReview(task) || a.status === 'done';
+        return true;
+      })
       .sort((x, y) => order[x.a.status] - order[y.a.status] || x.task.deadline.localeCompare(y.task.deadline));
+
+    document.querySelectorAll('#task-filters .filter').forEach((b) => b.classList.toggle('active', b.dataset.filter === taskFilter));
+    document.getElementById('filter-note').hidden = taskFilter !== 'review';
 
     document.getElementById('task-list').innerHTML = items.map(({ task, a }) => `
       <li class="card${a.status === 'done' ? ' complete' : ''}" data-id="${task.id}">
@@ -146,9 +155,49 @@
         ${bar(a.progress, a.status === 'done')}
         <div class="meta">${fmtDate(task.startDate)} 〜 ${fmtDate(task.deadline)} ・ 学習日: ${task.studyDays.map((d) => WEEKDAYS[d]).join('')}</div>
         <div class="meta">${a.status === 'done' ? '完了しました' : deadlineText(a)}${paceText(task, a)}</div>
-        <div class="card-actions"><button data-action="edit">編集</button></div>
+        ${reviewInfo(task, a)}
+        <div class="card-actions">
+          <button data-action="edit">編集</button>
+          ${a.status === 'done' && !P.isReview(task) ? '<button data-action="add-review">＋ 復習タスクを作る</button>' : ''}
+        </div>
       </li>`).join('');
-    document.getElementById('tasks-empty').hidden = items.length > 0;
+    const empty = document.getElementById('tasks-empty');
+    empty.hidden = items.length > 0;
+    empty.textContent = taskFilter === 'all' || state.tasks.length === 0
+      ? 'まだタスクがありません。「＋ タスクを追加」から登録してください。'
+      : '該当するタスクはありません。';
+  }
+
+  let taskFilter = 'all';
+
+  document.getElementById('task-filters').addEventListener('click', (e) => {
+    if (!e.target.dataset.filter) return;
+    taskFilter = e.target.dataset.filter;
+    renderTasks();
+  });
+
+  // 復習タスクなら元のタスクと何回目か、終わったタスクなら復習の状況を表示する
+  function reviewInfo(task, a) {
+    const t = today();
+    if (P.isReview(task)) {
+      const source = state.tasks.find((x) => x.id === task.reviewOf);
+      if (!source) return '';
+      const round = P.reviewSummary(source, state.tasks, state.logs, t).reviews.find((r) => r.task === task).round;
+      return `<div class="meta">復習元: ${esc(source.title)}（${round}回目）</div>`;
+    }
+    if (a.status !== 'done') return '';
+    const s = P.reviewSummary(task, state.tasks, state.logs, t);
+    const since = s.daysSince === null ? '' : `${s.lastReviewedOn ? '前回の復習' : '完了'}から${s.daysSince}日`;
+    if (s.reviews.length === 0) {
+      return `<div class="review-status"><strong>未復習</strong>${since ? ` ・ ${since}` : ''}</div>`;
+    }
+    const list = s.reviews.map((r) => {
+      const state_ = r.status === 'done'
+        ? `完了${r.completedOn ? `（${fmtDate(r.completedOn)}）` : ''}`
+        : `${STATUS_LABEL[r.status]} ${Math.round(r.progress * 100)}% ・ 期限 ${fmtDate(r.task.deadline)}`;
+      return `<li>${r.round}回目: ${state_}</li>`;
+    }).join('');
+    return `<div class="review-status"><strong>復習 ${s.completedCount}回完了</strong>${s.active ? ' ・ 復習中' : ''}${since ? ` <span class="muted">・ ${since}</span>` : ''}<ul>${list}</ul></div>`;
   }
 
   function paceText(task, a) {
@@ -203,6 +252,44 @@
     .map((w, i) => `<label><input type="checkbox" name="studyDays" value="${i}">${w}</label>`)
     .join('');
 
+  const reviewCheck = form.elements.review;
+  const reviewSelect = form.elements.reviewOf;
+
+  function fillReviewOptions(selfId, selected) {
+    const sources = state.tasks.filter((x) => x.id !== selfId && !P.isReview(x));
+    reviewSelect.innerHTML = '<option value="">（指定しない）</option>' + sources
+      .map((x) => `<option value="${x.id}"${x.id === selected ? ' selected' : ''}>${esc(x.title)}</option>`).join('');
+  }
+
+  function toggleReviewFields() {
+    document.getElementById('review-source-label').hidden = !reviewCheck.checked;
+  }
+  reviewCheck.addEventListener('change', toggleReviewFields);
+
+  // 新規作成中に元のタスクを選んだら、名前・量・単位・科目を元のタスクから埋める
+  reviewSelect.addEventListener('change', () => {
+    if (editingId) return;
+    const source = state.tasks.find((x) => x.id === reviewSelect.value);
+    if (source) presetReview(source);
+  });
+
+  function presetReview(source) {
+    const round = P.reviewSummary(source, state.tasks, state.logs, today()).reviews.length + 1;
+    form.elements.title.value = `${source.title} 復習${round}回目`;
+    form.elements.subject.value = source.subject || '';
+    form.elements.total.value = source.total;
+    form.elements.unit.value = source.unit;
+    form.elements.initialDone.value = 0;
+  }
+
+  function openReviewDialog(source) {
+    openDialog(null);
+    reviewCheck.checked = true;
+    fillReviewOptions(null, source.id);
+    toggleReviewFields();
+    presetReview(source);
+  }
+
   function openDialog(task) {
     editingId = task ? task.id : null;
     form.reset();
@@ -218,6 +305,9 @@
     form.querySelectorAll('input[name="studyDays"]').forEach((cb) => {
       cb.checked = values.studyDays.includes(Number(cb.value));
     });
+    reviewCheck.checked = task ? P.isReview(task) : false;
+    fillReviewOptions(editingId, task && task.reviewOf);
+    toggleReviewFields();
     dialog.showModal();
   }
 
@@ -232,6 +322,8 @@
       startDate: f.startDate.value,
       deadline: f.deadline.value,
       studyDays: [...form.querySelectorAll('input[name="studyDays"]:checked')].map((cb) => Number(cb.value)),
+      review: reviewCheck.checked,
+      reviewOf: reviewCheck.checked && reviewSelect.value ? reviewSelect.value : undefined,
     };
     if (!task.title || !task.unit) return { error: 'タスク名と単位を入力してください。' };
     if (!(task.total > 0)) return { error: '全体量は1以上の数値にしてください。' };
@@ -249,11 +341,21 @@
       document.getElementById('form-error').textContent = error;
       return;
     }
+    const { review, reviewOf, ...fields } = task;
+    let target;
     if (editingId) {
-      Object.assign(state.tasks.find((x) => x.id === editingId), task);
+      target = Object.assign(state.tasks.find((x) => x.id === editingId), fields);
     } else {
-      state.tasks.push({ id: newId(), createdAt: new Date().toISOString(), ...task });
+      target = { id: newId(), createdAt: new Date().toISOString(), ...fields };
+      state.tasks.push(target);
     }
+    // 復習タグはほかのタグを残したまま付け外しする
+    const tags = (target.tags || []).filter((x) => x !== P.REVIEW_TAG);
+    if (review) tags.push(P.REVIEW_TAG);
+    if (tags.length) target.tags = tags;
+    else delete target.tags;
+    if (reviewOf) target.reviewOf = reviewOf;
+    else delete target.reviewOf;
     save();
     dialog.close();
     renderAll();
@@ -269,6 +371,8 @@
     const task = state.tasks.find((x) => x.id === editingId);
     if (!task || !confirm(`「${task.title}」を削除しますか？記録も消えます。`)) return;
     state.tasks = state.tasks.filter((x) => x.id !== editingId);
+    // このタスクを元にした復習タスクは残し、ひも付けだけ外す
+    for (const x of state.tasks) if (x.reviewOf === editingId) delete x.reviewOf;
     for (const [d, entries] of Object.entries(state.logs)) {
       delete entries[editingId];
       if (Object.keys(entries).length === 0) delete state.logs[d];
@@ -306,8 +410,11 @@
   });
 
   document.getElementById('task-list').addEventListener('click', (e) => {
-    if (e.target.dataset.action !== 'edit') return;
-    openDialog(state.tasks.find((x) => x.id === e.target.closest('.card').dataset.id));
+    const action = e.target.dataset.action;
+    if (action !== 'edit' && action !== 'add-review') return;
+    const task = state.tasks.find((x) => x.id === e.target.closest('.card').dataset.id);
+    if (action === 'edit') openDialog(task);
+    else openReviewDialog(task);
   });
 
   document.getElementById('btn-export').addEventListener('click', () => {

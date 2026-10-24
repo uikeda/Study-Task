@@ -53,6 +53,12 @@
         <h2>タスク一覧</h2>
         <button class="primary" id="btn-add">＋ タスクを追加</button>
       </div>
+      <div class="filters" id="task-filters" role="group" aria-label="表示するタスク">
+        <button class="filter active" data-filter="all">すべて</button>
+        <button class="filter" data-filter="study">学習中</button>
+        <button class="filter" data-filter="review">復習</button>
+      </div>
+      <p class="note" id="filter-note" hidden>復習タスクと、終わったタスクの復習状況です。終わったタスクの「＋ 復習タスクを作る」から復習を追加できます。</p>
       <ul class="card-list" id="task-list"></ul>
       <p class="empty" id="tasks-empty" hidden>まだタスクがありません。「＋ タスクを追加」から登録してください。</p>
       <details class="data-tools">
@@ -118,6 +124,12 @@
         <label>単位<input name="unit" maxlength="10" value="ページ" required></label>
       </div>
       <label>すでに終えた量<input name="initialDone" type="number" min="0" step="1" value="0"></label>
+      <fieldset class="review-fields">
+        <label class="check"><input type="checkbox" name="review">復習タスクにする（「復習」タグを付ける）</label>
+        <label id="review-source-label" hidden>復習する元のタスク
+          <select name="reviewOf"></select>
+        </label>
+      </fieldset>
       <div class="row">
         <label>開始日<input name="startDate" type="date" required></label>
         <label>期限<input name="deadline" type="date" required></label>
