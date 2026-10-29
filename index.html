@@ -39,14 +39,15 @@
         <h2>時間割</h2>
         <button class="primary" id="btn-add-block">＋ 時間を追加</button>
       </div>
-      <p class="note">どの時間にどのタスクをやるかを決めておくと、「今日」タブに今やるタスクが表示されます。</p>
+      <p class="note">どの時間にどのタスクをやるかを決めておくと、「今日」タブに今やるタスクが表示されます。コマを押すと編集できます。</p>
       <div class="cal-head">
         <button id="sched-prev" aria-label="前の日">‹</button>
         <h2 id="sched-title"></h2>
         <button id="sched-next" aria-label="次の日">›</button>
         <button id="sched-today">今日</button>
       </div>
-      <ul class="block-list" id="block-list"></ul>
+      <div class="sched-legend" id="sched-legend"></div>
+      <div class="timeline" id="sched-timeline"></div>
       <p class="empty" id="block-empty" hidden>この日の時間割はありません。「＋ 時間を追加」から登録してください。</p>
     </section>
 

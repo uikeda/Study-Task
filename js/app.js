@@ -25,12 +25,13 @@
       if (data && Array.isArray(data.tasks) && data.logs) {
         if (!Array.isArray(data.events)) data.events = [];
         if (!Array.isArray(data.schedule)) data.schedule = [];
+        if (!data.subjectColors || typeof data.subjectColors !== 'object') data.subjectColors = {};
         return data;
       }
     } catch (e) {
       console.warn('保存データを読み込めませんでした', e);
     }
-    return { tasks: [], logs: {}, events: [], schedule: [] };
+    return { tasks: [], logs: {}, events: [], schedule: [], subjectColors: {} };
   }
 
   let saveWarned = false;
@@ -478,6 +479,7 @@
         logs: data.logs,
         events: Array.isArray(data.events) ? data.events : [],
         schedule: Array.isArray(data.schedule) ? data.schedule : [],
+        subjectColors: data.subjectColors && typeof data.subjectColors === 'object' ? data.subjectColors : {},
       };
       save();
       renderAll();
@@ -868,12 +870,6 @@
     return days.length === 7 ? '毎日' : [...days].sort((a, b) => a - b).map((d) => WEEKDAYS[d]).join('');
   }
 
-  function duration(block) {
-    const min = S.toMinutes(block.end) - S.toMinutes(block.start);
-    const h = Math.floor(min / 60);
-    return h ? `${h}時間${min % 60 ? `${min % 60}分` : ''}` : `${min}分`;
-  }
-
   // そのコマでやるタスクの、その日の量（今日ならノルマの残り）
   function blockAmountText(block, date) {
     const task = blockTask(block);
@@ -925,29 +921,95 @@
 
   let schedDate = today();
 
+  // 科目の色。検証済みの4色を科目に順に割り当て、5科目目以降と科目なし・タスク以外は「その他」の色にする
+  const SUBJECT_COLOR_SLOTS = 4;
+
+  function subjectColors() {
+    const subjects = state.tasks.map((x) => x.subject).filter(Boolean);
+    const next = S.assignSubjectColors(subjects, state.subjectColors || {}, SUBJECT_COLOR_SLOTS);
+    if (JSON.stringify(next) !== JSON.stringify(state.subjectColors || {})) {
+      state.subjectColors = next;
+      save();
+    }
+    return next;
+  }
+
+  function blockSubject(block, colors) {
+    const task = blockTask(block);
+    const subject = task && task.subject ? task.subject : '';
+    const slot = subject in colors ? colors[subject] : null;
+    return { subject, cls: slot === null ? 'subj-other' : `subj-${slot}`, legend: slot === null ? 'その他' : subject };
+  }
+
+  // 時間割タブ: 1日のタイムライン（時間の長さに比例した高さ、空き時間、今の線）
   function renderSchedule() {
     const t = today();
     const d = schedDate;
     document.getElementById('sched-title').textContent = `${fmtDate(d)}${d === t ? '（今日）' : ''}`;
     const blocks = S.blocksOn(state.schedule, d);
     const now = d === t ? S.toMinutes(nowTime()) : null;
-    document.getElementById('block-list').innerHTML = blocks.map((b) => {
-      const isNow = now !== null && S.toMinutes(b.start) <= now && now < S.toMinutes(b.end);
-      const isPast = d < t || (now !== null && S.toMinutes(b.end) <= now);
-      const clash = S.overlaps(state.schedule, b).filter((x) => S.appliesOn(x, d));
-      return `
-        <li class="block${isNow ? ' current' : isPast ? ' past' : ''}" data-id="${b.id}">
-          <div class="block-time">${b.start}〜${b.end}<span class="dur">${duration(b)}</span></div>
-          <div class="block-body">
-            ${isNow ? '<span class="now-tag">今</span>' : ''}${blockTitleHtml(b)}
-            <div class="meta">${blockAmountText(b, d)}</div>
-            <div class="meta">${blockRepeatText(b)}</div>
-            ${clash.length ? `<div class="warn-text">ほかのコマと時間が重なっています</div>` : ''}
-          </div>
-          <button data-action="edit-block">編集</button>
-        </li>`;
-    }).join('');
+    const colors = subjectColors();
+    const timeline = document.getElementById('sched-timeline');
     document.getElementById('block-empty').hidden = blocks.length > 0;
+    timeline.hidden = blocks.length === 0;
+
+    // 凡例はその日に出てくる科目だけ（色の順に）
+    const legend = new Map();
+    for (const b of blocks) {
+      const s = blockSubject(b, colors);
+      legend.set(s.legend, s.cls);
+    }
+    const order = (cls) => (cls === 'subj-other' ? 99 : Number(cls.slice(5)));
+    document.getElementById('sched-legend').innerHTML = [...legend]
+      .sort((x, y) => order(x[1]) - order(y[1]))
+      .map(([label, cls]) => `<span class="${cls}"><i class="subj-dot"></i>${esc(label)}</span>`).join('');
+
+    if (blocks.length === 0) {
+      timeline.innerHTML = '';
+      return;
+    }
+    const rows = S.dayLayout(blocks, { nowMin: now });
+    timeline.innerHTML = rows.map((row) => {
+      if (row.type === 'gap') {
+        return `<div class="tl-gap">${S.fromMinutes(row.from)}〜${S.fromMinutes(row.to)} 空き ${S.formatDuration(row.to - row.from)}</div>`;
+      }
+      const hours = row.hours.map((h) => `<div class="tl-hour" style="top:${h.top}px"><span>${h.label}</span></div>`).join('');
+      const free = row.free.filter((f) => f.height >= 16)
+        .map((f) => `<div class="tl-free" style="top:${f.top}px;height:${f.height}px">空き ${S.formatDuration(f.to - f.from)}</div>`).join('');
+      const items = row.items.map((item) => timelineBlock(item, d, t, now, colors)).join('');
+      const nowLine = row.now === null ? '' : `
+        <div class="tl-now" style="top:${row.now}px"><span>${nowTime()}</span></div>`;
+      return `
+        <div class="tl-seg" style="height:${row.height}px">
+          ${hours}
+          <div class="tl-area">${free}${items}</div>
+          ${nowLine}
+        </div>`;
+    }).join('');
+  }
+
+  function timelineBlock(item, d, t, now, colors) {
+    const b = item.block;
+    const start = S.toMinutes(b.start);
+    const end = S.toMinutes(b.end);
+    const isNow = now !== null && start <= now && now < end;
+    const isPast = d < t || (now !== null && end <= now);
+    const task = blockTask(b);
+    const { subject, cls } = blockSubject(b, colors);
+    const title = task ? task.title : b.label || '（削除されたタスク）';
+    const timeText = `${b.start}–${b.end} ・ ${isNow ? `あと${end - now}分` : S.formatDuration(end - start)}`;
+    const amount = blockAmountText(b, d);
+    // 高さに入る行数だけ出す: 1行（名前と時刻を横に）/ 2行（名前・時刻）/ 3行（＋ノルマ）
+    const short = item.height < 40;
+    const showAmount = item.height >= 60;
+    const pos = `top:${item.top}px;height:${item.height}px;left:calc(${(item.lane / item.lanes) * 100}% + 2px);width:calc(${100 / item.lanes}% - 4px)`;
+    return `
+      <button class="tl-block ${cls}${isNow ? ' current' : ''}${isPast ? ' past' : ''}${short ? ' short' : ''}" style="${pos}"
+        data-id="${b.id}" title="${esc(`${b.start}〜${b.end} ${title}（${blockRepeatText(b)}）`)}">
+        <span class="tl-title">${isNow ? '<span class="tl-now-tag">今</span>' : ''}<i class="subj-dot"></i>${subject ? `<span class="tl-subj">${esc(subject)}</span>` : ''}${esc(title)}</span>
+        <span class="tl-time">${timeText}</span>
+        ${amount && showAmount ? `<span class="tl-amount">${amount}</span>` : ''}
+      </button>`;
   }
 
   function moveSchedDate(n) {
@@ -1053,9 +1115,10 @@
     blockDialog.close();
     renderAll();
   });
-  document.getElementById('block-list').addEventListener('click', (e) => {
-    if (e.target.dataset.action !== 'edit-block') return;
-    openBlockDialog(state.schedule.find((x) => x.id === e.target.closest('.block').dataset.id));
+  document.getElementById('sched-timeline').addEventListener('click', (e) => {
+    const el = e.target.closest('.tl-block');
+    if (!el) return;
+    openBlockDialog(state.schedule.find((x) => x.id === el.dataset.id));
   });
 
   // 時刻の表示を保つため、1分ごとに「今」を更新する（日付が変わっていたら全体を描き直す）
