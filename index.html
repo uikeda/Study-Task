@@ -11,9 +11,11 @@
     <h1>Study Task</h1>
     <nav class="tabs" role="tablist">
       <button class="tab active" data-view="today" role="tab">今日</button>
+      <button class="tab" data-view="schedule" role="tab">時間割</button>
       <button class="tab" data-view="calendar" role="tab">カレンダー</button>
       <button class="tab" data-view="tasks" role="tab">タスク</button>
       <button class="tab" data-view="week" role="tab">週間</button>
+      <button class="tab" data-view="stats" role="tab">達成度</button>
       <button class="tab" data-view="sync" role="tab">連携</button>
     </nav>
   </header>
@@ -22,12 +24,30 @@
     <!-- 今日のタスク -->
     <section id="view-today" class="view active">
       <div class="countdown" id="countdown-today"></div>
+      <div id="now-panel"></div>
       <div class="today-head">
         <h2 id="today-label"></h2>
         <div class="summary" id="today-summary"></div>
       </div>
       <ul class="card-list" id="today-list"></ul>
       <p class="empty" id="today-empty" hidden>今日のノルマはありません。<button class="link" data-goto="tasks">タスクを追加</button></p>
+    </section>
+
+    <!-- 時間割 -->
+    <section id="view-schedule" class="view">
+      <div class="section-head">
+        <h2>時間割</h2>
+        <button class="primary" id="btn-add-block">＋ 時間を追加</button>
+      </div>
+      <p class="note">どの時間にどのタスクをやるかを決めておくと、「今日」タブに今やるタスクが表示されます。</p>
+      <div class="cal-head">
+        <button id="sched-prev" aria-label="前の日">‹</button>
+        <h2 id="sched-title"></h2>
+        <button id="sched-next" aria-label="次の日">›</button>
+        <button id="sched-today">今日</button>
+      </div>
+      <ul class="block-list" id="block-list"></ul>
+      <p class="empty" id="block-empty" hidden>この日の時間割はありません。「＋ 時間を追加」から登録してください。</p>
     </section>
 
     <!-- カレンダー -->
@@ -76,10 +96,60 @@
       <div class="table-wrap"><table id="week-table"></table></div>
     </section>
 
+    <!-- 達成度 -->
+    <section id="view-stats" class="view">
+      <h2>達成度</h2>
+      <div class="stat-row" id="stat-tiles"></div>
+
+      <div class="panel chart-panel">
+        <h3>日ごとのノルマ達成率（直近14日）</h3>
+        <p class="note">その日にノルマがあったタスクの達成率（100%が上限）の平均です。ノルマのない日は「–」。</p>
+        <div class="chart" id="chart-daily"></div>
+        <details class="chart-table">
+          <summary>表で見る</summary>
+          <div class="table-wrap"><table id="table-daily"></table></div>
+        </details>
+      </div>
+
+      <div class="panel chart-panel">
+        <h3>タスク別の進み具合</h3>
+        <p class="note">棒が実際に終えた割合、縦線が当初の計画どおりなら今日までに終えているはずの割合です。</p>
+        <div class="legend" id="progress-legend">
+          <span><i class="key-bar"></i>終えた割合</span>
+          <span><i class="key-tick"></i>計画の目安</span>
+        </div>
+        <div class="chart" id="chart-progress"></div>
+        <details class="chart-table">
+          <summary>表で見る</summary>
+          <div class="table-wrap"><table id="table-progress"></table></div>
+        </details>
+      </div>
+      <div class="tooltip" id="chart-tooltip" role="status" hidden></div>
+    </section>
+
     <!-- テキスト連携 -->
     <section id="view-sync" class="view">
       <h2>テキストで計画をやり取り</h2>
       <p class="note">Claude などのチャットで立てた計画をアプリに取り込んだり、アプリの状況をチャットに渡して計画を見直してもらったりできます。</p>
+
+      <div class="panel" id="ai-panel">
+        <h3>AI に直接相談する（Claude API）</h3>
+        <p class="note">アプリから Claude にプロンプトを送ります。今の計画も一緒に送るので、「数学を週3日に減らして」のように頼めます。計画が返ってきたら「取り込む」で下の「2. チャット → アプリ」に入り、変更内容を確認してから反映できます。</p>
+        <details class="ai-settings" id="ai-settings">
+          <summary>API の設定</summary>
+          <label>API キー<input type="password" id="ai-key" autocomplete="off" spellcheck="false" placeholder="sk-ant-..."></label>
+          <label class="check"><input type="checkbox" id="ai-remember">このブラウザに API キーを保存する</label>
+          <label>モデル<select id="ai-model"></select></label>
+          <p class="note">API キーは <a href="https://console.anthropic.com/" target="_blank" rel="noopener">Anthropic Console</a> で発行します（利用料がかかります）。キーはこのブラウザから Anthropic に直接送られ、ほかのサーバーには送りません。保存しない場合はページを閉じると消えます。共用のパソコンでは保存しないでください。</p>
+        </details>
+        <ul class="chat-log" id="chat-log" aria-live="polite"></ul>
+        <textarea id="chat-input" rows="3" placeholder="例: 共通テストまでに青チャートと英単語を終えたい。平日は2時間、土日は5時間使えます。"></textarea>
+        <div class="btn-row">
+          <button class="primary" id="btn-chat-send">送信</button>
+          <button id="btn-chat-reset">会話をリセット</button>
+        </div>
+        <p class="status-msg" id="chat-status" role="status"></p>
+      </div>
 
       <div class="panel">
         <h3>計画をチャットで新しく作る</h3>
@@ -173,8 +243,39 @@
     </form>
   </dialog>
 
+  <!-- 時間割の追加・編集ダイアログ -->
+  <dialog id="block-dialog">
+    <form id="block-form" class="dialog-form" method="dialog">
+      <h2 id="block-dialog-title">時間を追加</h2>
+      <div class="row">
+        <label>開始<input name="start" type="time" required></label>
+        <label>終了<input name="end" type="time" required></label>
+      </div>
+      <label>やるタスク<select name="taskId"></select></label>
+      <label id="block-label-field">内容<input name="label" maxlength="40" placeholder="例: 学校の課題、模試の見直し"></label>
+      <fieldset>
+        <legend>いつ</legend>
+        <div class="weekdays">
+          <label><input type="radio" name="repeat" value="weekly" checked>毎週</label>
+          <label><input type="radio" name="repeat" value="once">この日だけ</label>
+        </div>
+      </fieldset>
+      <div class="weekdays" id="block-days"></div>
+      <label id="block-date-field" hidden>日付<input name="date" type="date"></label>
+      <p class="form-error" id="block-form-error" role="alert"></p>
+      <div class="dialog-actions">
+        <button type="button" class="danger" id="btn-block-delete" hidden>削除</button>
+        <span class="spacer"></span>
+        <button type="button" id="btn-block-cancel">キャンセル</button>
+        <button type="submit" class="primary">保存</button>
+      </div>
+    </form>
+  </dialog>
+
   <script src="js/planner.js"></script>
   <script src="js/textformat.js"></script>
+  <script src="js/schedule.js"></script>
+  <script src="js/ai.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

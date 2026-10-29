@@ -2,6 +2,7 @@
   'use strict';
 
   const P = window.Planner;
+  const S = window.Schedule;
   const STORAGE_KEY = 'study-task:v1';
   const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
   const STATUS_LABEL = {
@@ -23,12 +24,13 @@
       const data = JSON.parse(localStorage.getItem(STORAGE_KEY));
       if (data && Array.isArray(data.tasks) && data.logs) {
         if (!Array.isArray(data.events)) data.events = [];
+        if (!Array.isArray(data.schedule)) data.schedule = [];
         return data;
       }
     } catch (e) {
       console.warn('保存データを読み込めませんでした', e);
     }
-    return { tasks: [], logs: {}, events: [] };
+    return { tasks: [], logs: {}, events: [], schedule: [] };
   }
 
   function save() {
@@ -237,10 +239,13 @@
 
   function renderAll() {
     renderToday();
+    renderNow();
     renderTasks();
     renderWeek();
     renderCountdown();
     renderCalendar();
+    renderSchedule();
+    renderStats();
   }
 
   // ---------- 追加・編集ダイアログ ----------
@@ -373,6 +378,12 @@
     state.tasks = state.tasks.filter((x) => x.id !== editingId);
     // このタスクを元にした復習タスクは残し、ひも付けだけ外す
     for (const x of state.tasks) if (x.reviewOf === editingId) delete x.reviewOf;
+    // 時間割のコマは残し、タスクの名前を内容として引き継ぐ
+    for (const b of state.schedule) {
+      if (b.taskId !== editingId) continue;
+      b.label = task.title;
+      delete b.taskId;
+    }
     for (const [d, entries] of Object.entries(state.logs)) {
       delete entries[editingId];
       if (Object.keys(entries).length === 0) delete state.logs[d];
@@ -434,7 +445,12 @@
       const data = JSON.parse(await file.text());
       if (!Array.isArray(data.tasks) || typeof data.logs !== 'object') throw new Error('形式が違います');
       if (!confirm('現在のデータを読み込んだデータで置き換えますか？')) return;
-      state = { tasks: data.tasks, logs: data.logs, events: Array.isArray(data.events) ? data.events : [] };
+      state = {
+        tasks: data.tasks,
+        logs: data.logs,
+        events: Array.isArray(data.events) ? data.events : [],
+        schedule: Array.isArray(data.schedule) ? data.schedule : [],
+      };
       save();
       renderAll();
     } catch (err) {
@@ -721,6 +737,528 @@
       renderAll();
     });
   }
+
+  // ---------- 時間割 ----------
+
+  function nowTime() {
+    const d = new Date();
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  }
+
+  function blockTask(block) {
+    return block.taskId ? state.tasks.find((x) => x.id === block.taskId) : null;
+  }
+
+  function blockTitleHtml(block) {
+    const task = blockTask(block);
+    if (task) return titleHtml(task);
+    return `<div class="card-title">${esc(block.label || '（削除されたタスク）')}</div>`;
+  }
+
+  function blockRepeatText(block) {
+    if (block.date) return `${fmtDate(block.date)} だけ`;
+    return `毎週 ${formatDays(block.days)}`;
+  }
+
+  function formatDays(days) {
+    return days.length === 7 ? '毎日' : [...days].sort((a, b) => a - b).map((d) => WEEKDAYS[d]).join('');
+  }
+
+  function duration(block) {
+    const min = S.toMinutes(block.end) - S.toMinutes(block.start);
+    const h = Math.floor(min / 60);
+    return h ? `${h}時間${min % 60 ? `${min % 60}分` : ''}` : `${min}分`;
+  }
+
+  // そのコマでやるタスクの、その日の量（今日ならノルマの残り）
+  function blockAmountText(block, date) {
+    const task = blockTask(block);
+    if (!task) return '';
+    const t = today();
+    const a = P.dailyAmounts(task, state.logs, t, date, date)[date];
+    const unit = esc(task.unit);
+    if (a.type === 'today') {
+      if (a.amount === 0) return '今日のノルマはありません';
+      const left = Math.max(0, a.amount - a.done);
+      return left === 0 ? `ノルマ達成（${a.done} / ${a.amount} ${unit}）` : `今日のノルマ 残り <strong>${left}</strong> ${unit}（${a.done} / ${a.amount}）`;
+    }
+    if (a.type === 'done') return a.amount ? `${a.amount} ${unit} やった` : '記録なし';
+    return a.amount ? `予定 ${a.amount} ${unit}` : 'この日の予定量はありません';
+  }
+
+  // 「今日」タブ上部: 今やるタスクと次のタスク
+  function renderNow() {
+    const t = today();
+    const time = nowTime();
+    const { current, next, blocks } = S.nowAndNext(state.schedule, t, time);
+    const panel = document.getElementById('now-panel');
+    document.querySelectorAll('#today-list .card').forEach((card) => {
+      card.classList.toggle('now', !!current && card.dataset.id === current.taskId);
+    });
+    if (blocks.length === 0) {
+      panel.innerHTML = '';
+      return;
+    }
+    const now = S.toMinutes(time);
+    const head = current
+      ? `<div class="now-label">今の時間（${current.start}〜${current.end}・あと${S.toMinutes(current.end) - now}分）</div>
+         <div class="now-title">${blockTitleHtml(current)}</div>
+         <div class="now-sub">${blockAmountText(current, t)}</div>`
+      : `<div class="now-label">${time} 今は時間割の予定はありません</div>`;
+    const nextHtml = next
+      ? `<div class="now-next">次: <strong>${next.start}〜</strong> ${esc(blockTask(next) ? blockTask(next).title : next.label)}（あと${S.toMinutes(next.start) - now}分）</div>`
+      : '';
+    const list = blocks.map((b) => {
+      const cls = b === current ? 'current' : S.toMinutes(b.end) <= now ? 'past' : '';
+      return `<li class="${cls}">${b.start}〜${b.end} ${esc(blockTask(b) ? blockTask(b).title : b.label)}</li>`;
+    }).join('');
+    panel.innerHTML = `
+      <div class="now-card${current ? '' : ' idle'}">
+        ${head}${nextHtml}
+        <details><summary>今日の時間割（${blocks.length}コマ）</summary><ul class="mini-blocks">${list}</ul></details>
+      </div>`;
+  }
+
+  let schedDate = today();
+
+  function renderSchedule() {
+    const t = today();
+    const d = schedDate;
+    document.getElementById('sched-title').textContent = `${fmtDate(d)}${d === t ? '（今日）' : ''}`;
+    const blocks = S.blocksOn(state.schedule, d);
+    const now = d === t ? S.toMinutes(nowTime()) : null;
+    document.getElementById('block-list').innerHTML = blocks.map((b) => {
+      const isNow = now !== null && S.toMinutes(b.start) <= now && now < S.toMinutes(b.end);
+      const isPast = d < t || (now !== null && S.toMinutes(b.end) <= now);
+      const clash = S.overlaps(state.schedule, b).filter((x) => S.appliesOn(x, d));
+      return `
+        <li class="block${isNow ? ' current' : isPast ? ' past' : ''}" data-id="${b.id}">
+          <div class="block-time">${b.start}〜${b.end}<span class="dur">${duration(b)}</span></div>
+          <div class="block-body">
+            ${isNow ? '<span class="now-tag">今</span>' : ''}${blockTitleHtml(b)}
+            <div class="meta">${blockAmountText(b, d)}</div>
+            <div class="meta">${blockRepeatText(b)}</div>
+            ${clash.length ? `<div class="warn-text">ほかのコマと時間が重なっています</div>` : ''}
+          </div>
+          <button data-action="edit-block">編集</button>
+        </li>`;
+    }).join('');
+    document.getElementById('block-empty').hidden = blocks.length > 0;
+  }
+
+  function moveSchedDate(n) {
+    schedDate = P.addDays(schedDate, n);
+    renderSchedule();
+  }
+  document.getElementById('sched-prev').addEventListener('click', () => moveSchedDate(-1));
+  document.getElementById('sched-next').addEventListener('click', () => moveSchedDate(1));
+  document.getElementById('sched-today').addEventListener('click', () => {
+    schedDate = today();
+    renderSchedule();
+  });
+
+  const blockDialog = document.getElementById('block-dialog');
+  const blockForm = document.getElementById('block-form');
+  let editingBlockId = null;
+
+  document.getElementById('block-days').innerHTML = WEEKDAYS
+    .map((w, i) => `<label><input type="checkbox" name="days" value="${i}">${w}</label>`)
+    .join('');
+
+  function toggleBlockFields() {
+    const once = blockForm.querySelector('input[name="repeat"]:checked').value === 'once';
+    document.getElementById('block-days').hidden = once;
+    document.getElementById('block-date-field').hidden = !once;
+    document.getElementById('block-label-field').hidden = !!blockForm.elements.taskId.value;
+  }
+  blockForm.addEventListener('change', (e) => {
+    if (e.target.name === 'repeat' || e.target.name === 'taskId') toggleBlockFields();
+  });
+
+  function openBlockDialog(block) {
+    editingBlockId = block ? block.id : null;
+    blockForm.reset();
+    document.getElementById('block-form-error').textContent = '';
+    document.getElementById('block-dialog-title').textContent = block ? '時間を編集' : '時間を追加';
+    document.getElementById('btn-block-delete').hidden = !block;
+
+    // 選べるのは終わっていないタスク（編集中のコマのタスクは終わっていても残す）
+    const t = today();
+    const tasks = state.tasks.filter((x) => (block && x.id === block.taskId) || P.analyzeTask(x, state.logs, t).status !== 'done');
+    blockForm.elements.taskId.innerHTML = tasks
+      .map((x) => `<option value="${x.id}">${esc(x.subject ? `${x.subject}: ${x.title}` : x.title)}</option>`)
+      .join('') + '<option value="">タスク以外（内容を入力）</option>';
+
+    const dow = P.parseDate(schedDate).getDay();
+    const values = block || { start: '19:00', end: '20:00', taskId: tasks.length ? tasks[0].id : '', label: '', days: [dow] };
+    blockForm.elements.start.value = values.start;
+    blockForm.elements.end.value = values.end;
+    blockForm.elements.taskId.value = blockTask(values) ? values.taskId : '';
+    blockForm.elements.label.value = values.label || '';
+    blockForm.elements.date.value = values.date || schedDate;
+    blockForm.querySelector(`input[name="repeat"][value="${values.date ? 'once' : 'weekly'}"]`).checked = true;
+    blockForm.querySelectorAll('input[name="days"]').forEach((cb) => {
+      cb.checked = (values.days || [dow]).includes(Number(cb.value));
+    });
+    toggleBlockFields();
+    blockDialog.showModal();
+  }
+
+  blockForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const f = blockForm.elements;
+    const once = blockForm.querySelector('input[name="repeat"]:checked').value === 'once';
+    const task = state.tasks.find((x) => x.id === f.taskId.value);
+    const block = {
+      id: editingBlockId || newId(),
+      start: f.start.value,
+      end: f.end.value,
+      label: task ? task.title : f.label.value.trim(),
+    };
+    if (task) block.taskId = task.id;
+    if (once) block.date = f.date.value;
+    else block.days = [...blockForm.querySelectorAll('input[name="days"]:checked')].map((cb) => Number(cb.value));
+    if (once && !block.date) {
+      document.getElementById('block-form-error').textContent = '日付を入力してください。';
+      return;
+    }
+    const error = S.validate(block);
+    if (error) {
+      document.getElementById('block-form-error').textContent = error;
+      return;
+    }
+    const clash = S.overlaps(state.schedule, block);
+    if (clash.length && !confirm(`${clash.map((b) => `${b.start}〜${b.end}`).join('、')} のコマと時間が重なります。このまま保存しますか？`)) return;
+
+    const i = state.schedule.findIndex((x) => x.id === block.id);
+    if (i >= 0) state.schedule[i] = block;
+    else state.schedule.push(block);
+    save();
+    blockDialog.close();
+    if (once) schedDate = block.date;
+    renderAll();
+  });
+
+  document.getElementById('btn-add-block').addEventListener('click', () => openBlockDialog(null));
+  document.getElementById('btn-block-cancel').addEventListener('click', () => blockDialog.close());
+  document.getElementById('btn-block-delete').addEventListener('click', () => {
+    const block = state.schedule.find((x) => x.id === editingBlockId);
+    if (!block || !confirm(`${block.start}〜${block.end} のコマを削除しますか？`)) return;
+    state.schedule = state.schedule.filter((x) => x.id !== editingBlockId);
+    save();
+    blockDialog.close();
+    renderAll();
+  });
+  document.getElementById('block-list').addEventListener('click', (e) => {
+    if (e.target.dataset.action !== 'edit-block') return;
+    openBlockDialog(state.schedule.find((x) => x.id === e.target.closest('.block').dataset.id));
+  });
+
+  // 時刻の表示を保つため、1分ごとに「今」を更新する（日付が変わっていたら全体を描き直す）
+  let renderedDate = today();
+  setInterval(() => {
+    if (today() !== renderedDate) {
+      renderedDate = today();
+      schedDate = renderedDate;
+      renderAll();
+      return;
+    }
+    renderNow();
+    if (schedDate === renderedDate) renderSchedule();
+  }, 30 * 1000);
+
+  // ---------- 達成度 ----------
+
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const tooltip = document.getElementById('chart-tooltip');
+
+  function pct(rate) {
+    return `${Math.round(rate * 100)}%`;
+  }
+
+  function chartWidth(el) {
+    return Math.max(280, Math.min(720, el.clientWidth || 640));
+  }
+
+  // 上端だけ角を丸めた縦棒（4px）。高さが小さいときは丸めを縮める
+  function columnPath(x, y, w, h) {
+    const r = Math.min(4, h, w / 2);
+    return `M${x},${y + h}V${y + r}Q${x},${y} ${x + r},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${y + h}Z`;
+  }
+
+  // 右端だけ角を丸めた横棒
+  function barPath(x, y, w, h) {
+    const r = Math.min(4, w, h / 2);
+    return `M${x},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${y + h - r}Q${x + w},${y + h} ${x + w - r},${y + h}H${x}Z`;
+  }
+
+  function renderStats() {
+    const t = today();
+    const series = P.achievementSeries(state.tasks, state.logs, t, 14);
+    const todayAch = series[series.length - 1];
+    const week = series.slice(-7).filter((d) => d.rate !== null);
+    const weekAvg = week.length ? week.reduce((s, d) => s + d.rate, 0) / week.length : null;
+    const analyses = state.tasks.map((task) => ({ task, a: P.analyzeTask(task, state.logs, t) }));
+    const lagging = analyses.filter(({ a }) => a.status === 'behind' || a.status === 'overdue').length;
+    const doneCount = analyses.filter(({ a }) => a.status === 'done').length;
+
+    const tile = (label, value, sub) => `<div class="stat"><div class="stat-label">${label}</div><div class="stat-value">${value}</div><div class="stat-sub">${sub}</div></div>`;
+    document.getElementById('stat-tiles').innerHTML = [
+      tile('今日の達成率', todayAch.rate === null ? '–' : pct(todayAch.rate), todayAch.count ? `ノルマ達成 ${todayAch.cleared} / ${todayAch.count}` : '今日のノルマはありません'),
+      tile('直近7日の平均', weekAvg === null ? '–' : pct(weekAvg), `ノルマのあった ${week.length} 日の平均`),
+      tile('連続達成', `${P.streak(state.tasks, state.logs, t)}<small>日</small>`, 'ノルマのない日は数えません'),
+      tile('計画より遅れ', `${lagging}<small>件</small>`, `完了 ${doneCount} / 全 ${state.tasks.length} 件`),
+    ].join('');
+
+    renderDailyChart(series, t);
+    renderProgressChart(analyses.filter(({ a }) => a.status !== 'done'), t);
+  }
+
+  function renderDailyChart(series, t) {
+    const el = document.getElementById('chart-daily');
+    const W = chartWidth(el);
+    const H = 200;
+    const m = { top: 20, right: 8, bottom: 26, left: 38 };
+    const iw = W - m.left - m.right;
+    const ih = H - m.top - m.bottom;
+    const slot = iw / series.length;
+    const bw = Math.min(24, slot - 6);
+    const y = (rate) => m.top + ih * (1 - rate);
+    const everyOther = slot < 38;
+
+    let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="日ごとのノルマ達成率のグラフ（直近14日）">`;
+    for (const v of [0, 0.5, 1]) {
+      svg += `<line class="gridline" x1="${m.left}" x2="${W - m.right}" y1="${y(v)}" y2="${y(v)}"/>`;
+      svg += `<text x="${m.left - 6}" y="${y(v) + 4}" text-anchor="end">${pct(v)}</text>`;
+    }
+    series.forEach((d, i) => {
+      const cx = m.left + slot * i + slot / 2;
+      const date = P.parseDate(d.date);
+      if (!everyOther || (series.length - 1 - i) % 2 === 0) {
+        svg += `<text x="${cx}" y="${H - 8}" text-anchor="middle"${d.date === t ? ' class="value"' : ''}>${d.date === t ? '今日' : `${date.getMonth() + 1}/${date.getDate()}`}</text>`;
+      }
+      const label = d.rate === null ? 'ノルマなし' : pct(d.rate);
+      const detail = d.count ? `ノルマ達成 ${d.cleared} / ${d.count} 件` : '';
+      svg += `<g class="datum" tabindex="0" data-title="${fmtDate(d.date)}" data-value="${label}" data-detail="${detail}">`;
+      svg += `<rect class="hit" x="${m.left + slot * i}" y="${m.top}" width="${slot}" height="${ih}"/>`;
+      if (d.rate === null) {
+        svg += `<text class="empty-mark" x="${cx}" y="${y(0) - 4}" text-anchor="middle">–</text>`;
+      } else if (d.rate > 0) {
+        svg += `<path class="mark" d="${columnPath(cx - bw / 2, y(d.rate), bw, ih * d.rate)}"/>`;
+      }
+      svg += '</g>';
+      // 値の数字は今日の棒にだけ付ける（ほかはツールチップと表で見る）
+      if (d.date === t && d.rate !== null) {
+        svg += `<text class="value" x="${cx}" y="${y(d.rate) - 6}" text-anchor="middle">${pct(d.rate)}</text>`;
+      }
+    });
+    svg += '</svg>';
+    el.innerHTML = svg;
+
+    document.getElementById('table-daily').innerHTML = `
+      <thead><tr><th>日付</th><th>達成率</th><th>ノルマ達成</th></tr></thead>
+      <tbody>${series.slice().reverse().map((d) => `<tr><td>${fmtDate(d.date)}</td><td>${d.rate === null ? '–' : pct(d.rate)}</td><td>${d.count ? `${d.cleared} / ${d.count}` : '–'}</td></tr>`).join('')}</tbody>`;
+  }
+
+  function renderProgressChart(items, t) {
+    const el = document.getElementById('chart-progress');
+    document.getElementById('progress-legend').hidden = items.length === 0;
+    if (items.length === 0) {
+      el.innerHTML = '<p class="chart-empty">進行中のタスクはありません。</p>';
+      document.getElementById('table-progress').innerHTML = '';
+      return;
+    }
+    items.sort((x, y) => x.task.deadline.localeCompare(y.task.deadline));
+    const W = chartWidth(el);
+    const rowH = 40;
+    const m = { top: 4, right: 48, left: 0 };
+    const iw = W - m.left - m.right;
+    const H = m.top + rowH * items.length;
+
+    let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="タスク別の進み具合のグラフ">`;
+    items.forEach(({ task, a }, i) => {
+      const top = m.top + rowH * i;
+      const barY = top + 20;
+      const expected = task.total ? Math.min(1, P.expectedDone(task, t) / task.total) : 0;
+      const name = task.subject ? `${task.subject}: ${task.title}` : task.title;
+      svg += `<text x="${m.left}" y="${top + 13}">${esc(name)}</text>`;
+      svg += `<g class="datum" tabindex="0" data-title="${esc(name)}" data-value="${pct(a.progress)}" data-detail="${a.done} / ${task.total} ${esc(task.unit)} ・ 計画の目安 ${pct(expected)} ・ ${STATUS_LABEL[a.status]}">`;
+      svg += `<rect class="hit" x="${m.left}" y="${top}" width="${W - m.left}" height="${rowH}"/>`;
+      svg += `<rect class="track" x="${m.left}" y="${barY}" width="${iw}" height="10" rx="5"/>`;
+      if (a.progress > 0) svg += `<path class="mark" d="${barPath(m.left, barY, Math.max(2, iw * a.progress), 10)}"/>`;
+      svg += '</g>';
+      const ex = m.left + iw * expected;
+      svg += `<line class="tick-mark" x1="${ex}" x2="${ex}" y1="${barY - 4}" y2="${barY + 14}"/>`;
+      svg += `<text class="value" x="${W - 4}" y="${barY + 9}" text-anchor="end">${pct(a.progress)}</text>`;
+    });
+    svg += '</svg>';
+    el.innerHTML = svg;
+
+    document.getElementById('table-progress').innerHTML = `
+      <thead><tr><th>タスク</th><th>終えた量</th><th>割合</th><th>計画の目安</th><th>状態</th></tr></thead>
+      <tbody>${items.map(({ task, a }) => `<tr><td>${esc(task.title)}</td><td>${a.done} / ${task.total} ${esc(task.unit)}</td><td>${pct(a.progress)}</td><td>${pct(task.total ? Math.min(1, P.expectedDone(task, t) / task.total) : 0)}</td><td>${STATUS_LABEL[a.status]}</td></tr>`).join('')}</tbody>`;
+  }
+
+  // ツールチップ（マウスでもキーボードのフォーカスでも同じ内容を出す）
+  function showTooltip(datum, x, y) {
+    tooltip.replaceChildren();
+    const value = document.createElement('strong');
+    value.textContent = datum.dataset.value;
+    const title = document.createElement('div');
+    title.className = 'tt-label';
+    title.textContent = datum.dataset.title;
+    tooltip.append(value, title);
+    if (datum.dataset.detail) {
+      const detail = document.createElement('div');
+      detail.textContent = datum.dataset.detail;
+      tooltip.append(detail);
+    }
+    tooltip.hidden = false;
+    const r = tooltip.getBoundingClientRect();
+    tooltip.style.left = `${Math.max(8, Math.min(window.innerWidth - r.width - 8, x + 12))}px`;
+    tooltip.style.top = `${Math.max(8, y - r.height - 12)}px`;
+  }
+
+  const statsView = document.getElementById('view-stats');
+  statsView.addEventListener('pointermove', (e) => {
+    const datum = e.target.closest('.datum');
+    if (datum) showTooltip(datum, e.clientX, e.clientY);
+    else tooltip.hidden = true;
+  });
+  statsView.addEventListener('pointerleave', () => { tooltip.hidden = true; });
+  statsView.addEventListener('focusin', (e) => {
+    const datum = e.target.closest('.datum');
+    if (!datum) return;
+    const r = datum.getBoundingClientRect();
+    showTooltip(datum, r.left + r.width / 2, r.top);
+  });
+  statsView.addEventListener('focusout', () => { tooltip.hidden = true; });
+
+  let resizeTimer = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      if (statsView.classList.contains('active')) renderStats();
+    }, 150);
+  });
+
+  // ---------- AI に直接相談 ----------
+
+  const AI_SETTINGS_KEY = 'study-task:ai';
+  const aiKeyInput = document.getElementById('ai-key');
+  const aiRemember = document.getElementById('ai-remember');
+  const aiModel = document.getElementById('ai-model');
+  const chatLog = document.getElementById('chat-log');
+  const chatInput = document.getElementById('chat-input');
+  const chatSend = document.getElementById('btn-chat-send');
+  const chatStatus = document.getElementById('chat-status');
+
+  // API キーは学習データ（state）とは別に保存し、バックアップの JSON には含めない
+  function loadAiSettings() {
+    try {
+      return JSON.parse(localStorage.getItem(AI_SETTINGS_KEY)) || {};
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function saveAiSettings() {
+    const settings = { model: aiModel.value };
+    if (aiRemember.checked && aiKeyInput.value.trim()) settings.apiKey = aiKeyInput.value.trim();
+    localStorage.setItem(AI_SETTINGS_KEY, JSON.stringify(settings));
+  }
+
+  const aiSettings = loadAiSettings();
+  aiModel.innerHTML = window.AI.MODELS.map((x) => `<option value="${x.id}">${esc(x.label)}</option>`).join('');
+  aiModel.value = window.AI.MODELS.some((x) => x.id === aiSettings.model) ? aiSettings.model : window.AI.DEFAULT_MODEL;
+  aiKeyInput.value = aiSettings.apiKey || '';
+  aiRemember.checked = !!aiSettings.apiKey;
+  document.getElementById('ai-settings').open = !aiSettings.apiKey;
+  [aiModel, aiRemember].forEach((el) => el.addEventListener('change', saveAiSettings));
+  aiKeyInput.addEventListener('change', saveAiSettings);
+
+  let chatHistory = []; // API に送る会話（assistant は返ってきたブロックのまま）
+  let chatView = []; // 画面に出す会話 { role, text }
+  let chatBusy = false;
+
+  function renderChat() {
+    chatLog.innerHTML = chatView.map((m, i) => `
+      <li class="msg ${m.role}">${esc(m.text)}${m.role === 'assistant' && window.AI.hasPlan(m.text)
+        ? `<div class="btn-row"><button class="primary" data-action="import-reply" data-index="${i}">この計画を取り込む（内容を確認）</button></div>`
+        : ''}</li>`).join('');
+    chatLog.scrollTop = chatLog.scrollHeight;
+  }
+
+  async function sendChat() {
+    const text = chatInput.value.trim();
+    if (!text || chatBusy) return;
+    const apiKey = aiKeyInput.value.trim();
+    if (!apiKey) {
+      document.getElementById('ai-settings').open = true;
+      chatStatus.textContent = '';
+      aiKeyInput.focus();
+      showChatError('API キーを入力してください。');
+      return;
+    }
+    chatBusy = true;
+    chatSend.disabled = true;
+    chatHistory.push({ role: 'user', content: text });
+    chatView.push({ role: 'user', text });
+    chatInput.value = '';
+    renderChat();
+    chatStatus.textContent = '送信しました。返信を待っています（考える時間が1分ほどかかることがあります）…';
+    let error = null;
+    try {
+      const { message, text: reply } = await window.AI.send({
+        apiKey,
+        model: aiModel.value,
+        history: chatHistory,
+        state,
+        today: today(),
+      });
+      chatHistory.push({ role: 'assistant', content: message.content });
+      chatView.push({ role: 'assistant', text: reply || '（返信が空でした）' });
+      chatStatus.textContent = '';
+    } catch (err) {
+      // 送れなかった発言は会話から外し、入力欄に戻す
+      chatHistory.pop();
+      chatView.pop();
+      chatInput.value = text;
+      chatStatus.textContent = '';
+      error = err.message;
+    } finally {
+      chatBusy = false;
+      chatSend.disabled = false;
+    }
+    if (error) showChatError(error);
+    else renderChat();
+  }
+
+  function showChatError(message) {
+    renderChat();
+    const li = document.createElement('li');
+    li.className = 'msg error';
+    li.textContent = message;
+    chatLog.append(li);
+  }
+
+  chatSend.addEventListener('click', sendChat);
+  chatInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) sendChat();
+  });
+  document.getElementById('btn-chat-reset').addEventListener('click', () => {
+    if (chatBusy) return;
+    chatHistory = [];
+    chatView = [];
+    chatStatus.textContent = '';
+    renderChat();
+  });
+  chatLog.addEventListener('click', (e) => {
+    if (e.target.dataset.action !== 'import-reply') return;
+    importText.value = chatView[Number(e.target.dataset.index)].text;
+    showPreview();
+    preview.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
 
   renderAll();
 })();

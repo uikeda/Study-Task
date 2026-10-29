@@ -139,3 +139,53 @@ test('reviewSummary は復習を回数順に並べ、最後の復習からの経
   assert.equal(none.reviews.length, 0);
   assert.equal(none.daysSince, 12);
 });
+
+test('dayAchievement はその日の時点の記録でノルマを計算し、後の記録に影響されない', () => {
+  const task = makeTask();
+  const logs = { '2026-10-01': { t1: 10 }, '2026-10-02': { t1: 5 }, '2026-10-05': { t1: 50 } };
+  const d1 = P.dayAchievement([task], logs, '2026-10-01');
+  assert.equal(d1.rate, 1);
+  assert.equal(d1.cleared, 1);
+  const d2 = P.dayAchievement([task], logs, '2026-10-02');
+  assert.equal(d2.items[0].quota, 10);
+  assert.equal(d2.rate, 0.5);
+  assert.equal(d2.cleared, 0);
+});
+
+test('dayAchievement はタスクごとの達成率を平均し、ノルマのない日は rate が null', () => {
+  const a = makeTask();
+  const b = makeTask({ id: 't2', unit: '語', total: 1000 });
+  const day = P.dayAchievement([a, b], { '2026-10-01': { t1: 20, t2: 0 } }, '2026-10-01');
+  assert.equal(day.rate, 0.5); // a は 100%（超過分は数えない）、b は 0%
+  assert.equal(day.count, 2);
+  assert.equal(P.dayAchievement([a], {}, '2026-09-30').rate, null);
+});
+
+test('dayAchievement は登録日より前の日を評価に含めない', () => {
+  const task = makeTask({ createdAt: '2026-10-03T12:00:00' });
+  assert.equal(P.dayAchievement([task], {}, '2026-10-02').count, 0);
+  assert.equal(P.dayAchievement([task], {}, '2026-10-03').count, 1);
+});
+
+test('achievementSeries は古い順に指定日数分を返す', () => {
+  const s = P.achievementSeries([makeTask()], {}, '2026-10-03', 3);
+  assert.deepEqual(s.map((d) => d.date), ['2026-10-01', '2026-10-02', '2026-10-03']);
+});
+
+test('streak はノルマのない日を飛ばして連続達成日数を数え、今日が途中なら昨日までを数える', () => {
+  // 土曜（10/3, 10/10）は学習日でない。80 を 8 学習日で割って 1日 10
+  const task = makeTask({ total: 80, studyDays: [0, 1, 2, 3, 4, 5] });
+  const logs = { '2026-10-01': { t1: 10 }, '2026-10-02': { t1: 10 }, '2026-10-04': { t1: 10 } };
+  assert.equal(P.streak([task], logs, '2026-10-05'), 3);
+  assert.equal(P.streak([task], { ...logs, '2026-10-05': { t1: 10 } }, '2026-10-05'), 4);
+  assert.equal(P.streak([task], { ...logs, '2026-10-04': { t1: 5 } }, '2026-10-05'), 0); // 昨日が未達成なら途切れる
+  assert.equal(P.streak([], {}, '2026-10-05'), 0);
+});
+
+test('expectedDone は計画どおりなら終えているはずの量を返す', () => {
+  const task = makeTask({ initialDone: 20 });
+  assert.equal(P.expectedDone(task, '2026-09-30'), 20);
+  assert.equal(P.expectedDone(task, '2026-10-01'), 20);
+  assert.equal(P.expectedDone(task, '2026-10-06'), 60); // 5 学習日経過: 20 + 80 * 5/10
+  assert.equal(P.expectedDone(task, '2026-10-11'), 100);
+});

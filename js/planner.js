@@ -225,8 +225,69 @@
     };
   }
 
+  // ---------- 達成度 ----------
+
+  // date までの記録だけを残したログ（過去の日のノルマを、その日の時点の状態で計算し直すため）
+  function logsUntil(logs, date) {
+    const result = {};
+    for (const [d, entries] of Object.entries(logs)) if (d <= date) result[d] = entries;
+    return result;
+  }
+
+  // その日のノルマ達成度。ノルマのあるタスクごとの達成率（上限100%）の平均。
+  // 単位の違うタスク（ページと語など）を量で足し合わせないよう、タスク単位で平均する。
+  // date より後に登録したタスクは、その日の評価に含めない。
+  function dayAchievement(tasks, logs, date) {
+    const until = logsUntil(logs, date);
+    const items = [];
+    for (const task of tasks) {
+      if (task.createdAt && formatDate(new Date(task.createdAt)) > date) continue;
+      const a = analyzeTask(task, until, date);
+      if (a.quota > 0) items.push({ task, quota: a.quota, done: a.doneToday, ratio: Math.min(1, a.doneToday / a.quota) });
+    }
+    const cleared = items.filter((x) => x.done >= x.quota).length;
+    const rate = items.length ? items.reduce((s, x) => s + x.ratio, 0) / items.length : null;
+    return { date, rate, cleared, count: items.length, items };
+  }
+
+  // today までの numDays 日分の達成度（古い順）
+  function achievementSeries(tasks, logs, today, numDays) {
+    return Array.from({ length: numDays }, (_, i) => dayAchievement(tasks, logs, addDays(today, i - numDays + 1)));
+  }
+
+  // 全ノルマを達成した日が何日続いているか。ノルマのない日は数えずに飛ばす。
+  // 今日がまだ達成途中なら、昨日までの連続日数を返す。
+  function streak(tasks, logs, today) {
+    if (tasks.length === 0) return 0;
+    const earliest = tasks.reduce((m, t) => (t.startDate < m ? t.startDate : m), tasks[0].startDate);
+    let count = 0;
+    for (let d = today; d >= earliest; d = addDays(d, -1)) {
+      const day = dayAchievement(tasks, logs, d);
+      if (day.count === 0) continue;
+      if (day.cleared === day.count) count++;
+      else if (d !== today) break;
+    }
+    return count;
+  }
+
+  // 計画どおりなら today の開始時点で終えているはずの量（当初の計画を学習日で均等割り）
+  function expectedDone(task, today) {
+    const start = task.initialDone || 0;
+    if (today <= task.startDate) return start;
+    if (today > task.deadline) return task.total;
+    const all = studyDaysBetween(task, task.startDate, task.deadline).length;
+    if (all === 0) return start;
+    const elapsed = studyDaysBetween(task, task.startDate, addDays(today, -1)).length;
+    return start + Math.round(((task.total - start) * elapsed) / all);
+  }
+
   const Planner = {
     REVIEW_TAG,
+    logsUntil,
+    dayAchievement,
+    achievementSeries,
+    streak,
+    expectedDone,
     isReview,
     completedOn,
     reviewSummary,

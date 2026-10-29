@@ -292,6 +292,14 @@
 
   // チャットで新しく計画を立ててもらうためのプロンプト
   function planningPrompt(today) {
+    return `${planningRules(today)}
+# 私の状況
+（ここに目標・教材・使える時間などを書く）
+`;
+  }
+
+  // 計画づくりの進め方と出力形式。コピー用のプロンプトと、アプリから直接 AI に送る指示で共通
+  function planningRules(today) {
     return `あなたは学習計画を立てるアシスタントです。私の勉強の予定を、学習管理アプリ「Study Task」に読み込める形式で作ってください。
 
 # 進め方
@@ -338,13 +346,10 @@
 - 期限: ${P.addDays(today, 45)}
 - 曜日: 毎日
 \`\`\`
-
-# 私の状況
-（ここに目標・教材・使える時間などを書く）
 `;
   }
 
-  const TextFormat = { serialize, parse, applyImport, parseWeekdays, formatWeekdays, planningPrompt };
+  const TextFormat = { serialize, parse, applyImport, parseWeekdays, formatWeekdays, planningPrompt, planningRules };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = TextFormat;
   else root.TextFormat = TextFormat;
