@@ -298,7 +298,28 @@
 `;
   }
 
-  // 計画づくりの進め方と出力形式。コピー用のプロンプトと、アプリから直接 AI に送る指示で共通
+  // 今の計画と相談内容を入れた、チャットに貼り付ける相談用プロンプト。
+  // タスクが無ければ新しい計画づくり、あれば見直しの相談になる
+  function consultPrompt(state, today, request) {
+    const current = state.tasks.length
+      ? `# 現在の計画（アプリに登録済み）
+${serialize(state, today)}`
+      : '# 現在の計画\nまだタスクは登録されていません。';
+    return `${planningRules(today)}
+# アプリとの連携
+- 計画を含むコードブロックは、私がコピーしてアプリに貼り付けます。アプリは貼り付けた内容を計画全体として扱います。
+- 情報が足りないときは、計画を出す前に質問してください。質問や相談への回答だけで計画を変えない返信には、コードブロックを書かないでください。
+- 計画を出すときは、変更しないタスクも含めて計画全体を1つのコードブロックに書いてください。コードブロックに書かなかった既存タスクはアプリから削除されます。
+- 既存のタスクは「- id: 」の行をそのまま残してください（id が無いと別のタスクとして追加されます）。「済」は現在の値のまま書き、私が進めた量を伝えたときだけ増やしてください。
+- 「状況」の行は参考情報なので、出力には書かなくてかまいません。
+
+${current}
+# 私の相談
+${request && request.trim() ? request.trim() : '（ここに目標・教材・使える時間など、相談したいことを書く）'}
+`;
+  }
+
+  // 計画づくりの進め方と出力形式。コピー用の各プロンプトで共通
   function planningRules(today) {
     return `あなたは学習計画を立てるアシスタントです。私の勉強の予定を、学習管理アプリ「Study Task」に読み込める形式で作ってください。
 
@@ -349,7 +370,7 @@
 `;
   }
 
-  const TextFormat = { serialize, parse, applyImport, parseWeekdays, formatWeekdays, planningPrompt, planningRules };
+  const TextFormat = { serialize, parse, applyImport, parseWeekdays, formatWeekdays, planningPrompt, planningRules, consultPrompt };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = TextFormat;
   else root.TextFormat = TextFormat;

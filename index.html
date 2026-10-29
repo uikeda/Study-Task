@@ -130,32 +130,17 @@
     <!-- テキスト連携 -->
     <section id="view-sync" class="view">
       <h2>テキストで計画をやり取り</h2>
-      <p class="note">Claude などのチャットで立てた計画をアプリに取り込んだり、アプリの状況をチャットに渡して計画を見直してもらったりできます。</p>
+      <p class="note">Claude などのチャットで立てた計画をアプリに取り込んだり、アプリの状況をチャットに渡して計画を見直してもらったりできます。API キーや利用料は不要です。</p>
 
-      <div class="panel" id="ai-panel">
-        <h3>AI に直接相談する（Claude API）</h3>
-        <p class="note">アプリから Claude にプロンプトを送ります。今の計画も一緒に送るので、「数学を週3日に減らして」のように頼めます。計画が返ってきたら「取り込む」で下の「2. チャット → アプリ」に入り、変更内容を確認してから反映できます。</p>
-        <details class="ai-settings" id="ai-settings">
-          <summary>API の設定</summary>
-          <label>API キー<input type="password" id="ai-key" autocomplete="off" spellcheck="false" placeholder="sk-ant-..."></label>
-          <label class="check"><input type="checkbox" id="ai-remember">このブラウザに API キーを保存する</label>
-          <label>モデル<select id="ai-model"></select></label>
-          <p class="note">API キーは <a href="https://console.anthropic.com/" target="_blank" rel="noopener">Anthropic Console</a> で発行します（利用料がかかります）。キーはこのブラウザから Anthropic に直接送られ、ほかのサーバーには送りません。保存しない場合はページを閉じると消えます。共用のパソコンでは保存しないでください。</p>
-        </details>
-        <ul class="chat-log" id="chat-log" aria-live="polite"></ul>
-        <textarea id="chat-input" rows="3" placeholder="例: 共通テストまでに青チャートと英単語を終えたい。平日は2時間、土日は5時間使えます。"></textarea>
-        <div class="btn-row">
-          <button class="primary" id="btn-chat-send">送信</button>
-          <button id="btn-chat-reset">会話をリセット</button>
-        </div>
-        <p class="status-msg" id="chat-status" role="status"></p>
-      </div>
-
-      <div class="panel">
-        <h3>計画をチャットで新しく作る</h3>
-        <p class="note">今日の日付と出力形式を指定したプロンプトをコピーします。新しいチャットに貼り付け、末尾の「私の状況」に目標や教材を書き足して送ってください。返ってきたコードブロックの中身を下の「2. チャット → アプリ」に貼り付けます。</p>
+      <div class="panel" id="consult-panel">
+        <h3>AI に相談する（無料・コピー＆ペースト）</h3>
+        <p class="note">相談したいことを書いて、プロンプトをコピーします。Claude や ChatGPT などのチャット（無料プランで使えます）に貼り付けて送り、返ってきた計画を下の「2. チャット → アプリ」に貼り付けてください。今の計画と書式の説明もプロンプトに入るので、新しく計画を作るときも、見直すときも使えます。</p>
+        <textarea id="consult-text" rows="4" placeholder="例: 共通テストまでに青チャートと英単語を終えたい。平日は2時間、土日は5時間使えます。&#10;例: 数学を週3日に減らして、空いた日に古文単語を入れたい。"></textarea>
         <div class="btn-row">
           <button class="primary" id="btn-copy-prompt">プロンプトをコピー</button>
+          <a class="button" data-action="copy-open" href="https://claude.ai/new" target="_blank" rel="noopener">コピーして Claude を開く</a>
+          <a class="button" data-action="copy-open" href="https://chatgpt.com/" target="_blank" rel="noopener">コピーして ChatGPT を開く</a>
+          <a class="button" data-action="copy-open" href="https://gemini.google.com/app" target="_blank" rel="noopener">コピーして Gemini を開く</a>
         </div>
         <p class="status-msg" id="prompt-status" role="status"></p>
       </div>
@@ -176,6 +161,7 @@
         <textarea id="import-text" rows="10" placeholder="## タスク名&#10;- 量: 240 問&#10;- 期限: 2026-11-30&#10;- 曜日: 毎日"></textarea>
         <div class="btn-row">
           <button class="primary" id="btn-preview">内容を確認</button>
+          <button id="btn-paste">クリップボードから貼り付け</button>
           <label class="file-btn">ファイルを開く<input type="file" id="input-text-file" accept=".md,.txt,text/plain,text/markdown"></label>
         </div>
         <div id="import-preview" hidden></div>
@@ -275,7 +261,6 @@
   <script src="js/planner.js"></script>
   <script src="js/textformat.js"></script>
   <script src="js/schedule.js"></script>
-  <script src="js/ai.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

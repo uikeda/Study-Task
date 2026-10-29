@@ -410,27 +410,15 @@ textarea {
 .tooltip strong { display: block; font-size: 1rem; }
 .tooltip .tt-label { color: var(--muted); }
 
-/* AI 相談 */
-.ai-settings { margin-bottom: 10px; font-size: 0.9rem; }
-.ai-settings summary { cursor: pointer; color: var(--muted); }
-.ai-settings[open] { display: grid; gap: 8px; }
-.ai-settings label { display: grid; gap: 4px; }
-.ai-settings label.check { display: flex; align-items: center; gap: 6px; }
-.ai-settings input[type="password"], .ai-settings select {
-  padding: 7px 10px;
+/* AI に相談 */
+a.button {
+  display: inline-block;
   border: 1px solid var(--border);
+  background: var(--surface);
   border-radius: 8px;
-  background: var(--bg);
-  color: inherit;
-  font: inherit;
-  width: 100%;
+  padding: 6px 12px;
+  color: var(--text);
+  text-decoration: none;
 }
-.ai-settings .note { margin: 0; }
-.ai-settings a { color: var(--accent); }
-.chat-log { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 8px; max-height: 480px; overflow-y: auto; }
-.chat-log:empty { display: none; }
-.msg { padding: 8px 12px; border-radius: 10px; font-size: 0.9rem; white-space: pre-wrap; word-break: break-word; }
-.msg.user { background: var(--accent-soft); justify-self: end; max-width: 90%; }
-.msg.assistant { background: var(--bg); border: 1px solid var(--border); }
-.msg.error { background: var(--bad-soft); color: var(--bad); }
-.msg .btn-row { white-space: normal; }
+a.button:hover { border-color: var(--accent); }
+#consult-text { font-family: inherit; }

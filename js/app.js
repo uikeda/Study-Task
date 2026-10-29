@@ -672,8 +672,52 @@
     copyText(TF.serialize(state, today()), 'copy-status', 'コピーできませんでした。「ファイルに保存」を使ってください。');
   });
 
+  function consultPromptText() {
+    return TF.consultPrompt(state, today(), document.getElementById('consult-text').value);
+  }
+
   document.getElementById('btn-copy-prompt').addEventListener('click', () => {
-    copyText(TF.planningPrompt(today()), 'prompt-status', 'コピーできませんでした。README のプロンプトを使ってください。');
+    copyText(consultPromptText(), 'prompt-status', 'コピーできませんでした。README のプロンプトを使ってください。');
+  });
+
+  // チャットを新しいタブで開く前に、同じクリックの中でコピーを済ませる
+  // （開いたタブにフォーカスが移ると、非同期のクリップボード API は失敗することがあるため）
+  function copySync(text) {
+    const area = document.createElement('textarea');
+    area.value = text;
+    area.setAttribute('readonly', '');
+    area.style.position = 'fixed';
+    area.style.opacity = '0';
+    document.body.append(area);
+    area.select();
+    let ok = false;
+    try {
+      ok = document.execCommand('copy');
+    } catch (err) {
+      ok = false;
+    }
+    area.remove();
+    return ok;
+  }
+
+  document.getElementById('consult-panel').addEventListener('click', (e) => {
+    const link = e.target.closest('[data-action="copy-open"]');
+    if (!link) return;
+    const ok = copySync(consultPromptText());
+    document.getElementById('prompt-status').textContent = ok
+      ? `コピーしました。開いたチャットに貼り付けて送ってください。`
+      : 'コピーできませんでした。「プロンプトをコピー」を押してから、開いたチャットに貼り付けてください。';
+  });
+
+  document.getElementById('btn-paste').addEventListener('click', async () => {
+    try {
+      importText.value = await navigator.clipboard.readText();
+      showPreview();
+    } catch (err) {
+      importText.focus();
+      preview.hidden = false;
+      preview.innerHTML = '<p>クリップボードを読み取れませんでした。入力欄に貼り付け（Ctrl+V / ⌘+V）してから「内容を確認」を押してください。</p>';
+    }
   });
 
   document.getElementById('btn-save-text').addEventListener('click', () => {
@@ -1140,124 +1184,6 @@
     resizeTimer = setTimeout(() => {
       if (statsView.classList.contains('active')) renderStats();
     }, 150);
-  });
-
-  // ---------- AI に直接相談 ----------
-
-  const AI_SETTINGS_KEY = 'study-task:ai';
-  const aiKeyInput = document.getElementById('ai-key');
-  const aiRemember = document.getElementById('ai-remember');
-  const aiModel = document.getElementById('ai-model');
-  const chatLog = document.getElementById('chat-log');
-  const chatInput = document.getElementById('chat-input');
-  const chatSend = document.getElementById('btn-chat-send');
-  const chatStatus = document.getElementById('chat-status');
-
-  // API キーは学習データ（state）とは別に保存し、バックアップの JSON には含めない
-  function loadAiSettings() {
-    try {
-      return JSON.parse(localStorage.getItem(AI_SETTINGS_KEY)) || {};
-    } catch (e) {
-      return {};
-    }
-  }
-
-  function saveAiSettings() {
-    const settings = { model: aiModel.value };
-    if (aiRemember.checked && aiKeyInput.value.trim()) settings.apiKey = aiKeyInput.value.trim();
-    localStorage.setItem(AI_SETTINGS_KEY, JSON.stringify(settings));
-  }
-
-  const aiSettings = loadAiSettings();
-  aiModel.innerHTML = window.AI.MODELS.map((x) => `<option value="${x.id}">${esc(x.label)}</option>`).join('');
-  aiModel.value = window.AI.MODELS.some((x) => x.id === aiSettings.model) ? aiSettings.model : window.AI.DEFAULT_MODEL;
-  aiKeyInput.value = aiSettings.apiKey || '';
-  aiRemember.checked = !!aiSettings.apiKey;
-  document.getElementById('ai-settings').open = !aiSettings.apiKey;
-  [aiModel, aiRemember].forEach((el) => el.addEventListener('change', saveAiSettings));
-  aiKeyInput.addEventListener('change', saveAiSettings);
-
-  let chatHistory = []; // API に送る会話（assistant は返ってきたブロックのまま）
-  let chatView = []; // 画面に出す会話 { role, text }
-  let chatBusy = false;
-
-  function renderChat() {
-    chatLog.innerHTML = chatView.map((m, i) => `
-      <li class="msg ${m.role}">${esc(m.text)}${m.role === 'assistant' && window.AI.hasPlan(m.text)
-        ? `<div class="btn-row"><button class="primary" data-action="import-reply" data-index="${i}">この計画を取り込む（内容を確認）</button></div>`
-        : ''}</li>`).join('');
-    chatLog.scrollTop = chatLog.scrollHeight;
-  }
-
-  async function sendChat() {
-    const text = chatInput.value.trim();
-    if (!text || chatBusy) return;
-    const apiKey = aiKeyInput.value.trim();
-    if (!apiKey) {
-      document.getElementById('ai-settings').open = true;
-      chatStatus.textContent = '';
-      aiKeyInput.focus();
-      showChatError('API キーを入力してください。');
-      return;
-    }
-    chatBusy = true;
-    chatSend.disabled = true;
-    chatHistory.push({ role: 'user', content: text });
-    chatView.push({ role: 'user', text });
-    chatInput.value = '';
-    renderChat();
-    chatStatus.textContent = '送信しました。返信を待っています（考える時間が1分ほどかかることがあります）…';
-    let error = null;
-    try {
-      const { message, text: reply } = await window.AI.send({
-        apiKey,
-        model: aiModel.value,
-        history: chatHistory,
-        state,
-        today: today(),
-      });
-      chatHistory.push({ role: 'assistant', content: message.content });
-      chatView.push({ role: 'assistant', text: reply || '（返信が空でした）' });
-      chatStatus.textContent = '';
-    } catch (err) {
-      // 送れなかった発言は会話から外し、入力欄に戻す
-      chatHistory.pop();
-      chatView.pop();
-      chatInput.value = text;
-      chatStatus.textContent = '';
-      error = err.message;
-    } finally {
-      chatBusy = false;
-      chatSend.disabled = false;
-    }
-    if (error) showChatError(error);
-    else renderChat();
-  }
-
-  function showChatError(message) {
-    renderChat();
-    const li = document.createElement('li');
-    li.className = 'msg error';
-    li.textContent = message;
-    chatLog.append(li);
-  }
-
-  chatSend.addEventListener('click', sendChat);
-  chatInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) sendChat();
-  });
-  document.getElementById('btn-chat-reset').addEventListener('click', () => {
-    if (chatBusy) return;
-    chatHistory = [];
-    chatView = [];
-    chatStatus.textContent = '';
-    renderChat();
-  });
-  chatLog.addEventListener('click', (e) => {
-    if (e.target.dataset.action !== 'import-reply') return;
-    importText.value = chatView[Number(e.target.dataset.index)].text;
-    showPreview();
-    preview.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
 
   renderAll();
