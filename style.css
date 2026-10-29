@@ -18,7 +18,7 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --chart-1: #5b8de8;
     --grid: #2e333d;
     --bg: #14171c;
@@ -34,7 +34,27 @@
     --warn-soft: #3a2a19;
     --bad: #f07272;
     --bad-soft: #3b1f21;
+    color-scheme: dark;
   }
+}
+
+:root[data-theme="dark"] {
+  --chart-1: #5b8de8;
+  --grid: #2e333d;
+  --bg: #14171c;
+  --surface: #1d2129;
+  --text: #e7e9ee;
+  --muted: #98a0ad;
+  --border: #2e333d;
+  --accent: #6c9bf0;
+  --accent-soft: #23314b;
+  --ok: #5cc48a;
+  --ok-soft: #1c3426;
+  --warn: #f0a24f;
+  --warn-soft: #3a2a19;
+  --bad: #f07272;
+  --bad-soft: #3b1f21;
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -63,11 +83,12 @@ button {
 button:hover { border-color: var(--accent); }
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 button.danger { color: var(--bad); }
+button.danger-fill { background: var(--bad); border-color: var(--bad); color: #fff; }
 button.link { border: none; background: none; color: var(--accent); padding: 0; text-decoration: underline; }
 
 .app-header {
   position: sticky;
-  top: 0;
+  top: env(safe-area-inset-top, 0px);
   z-index: 1;
   display: flex;
   flex-wrap: wrap;
@@ -422,3 +443,5 @@ a.button {
 }
 a.button:hover { border-color: var(--accent); }
 #consult-text { font-family: inherit; }
+.manual-copy { margin-top: 8px; }
+#confirm-message { margin: 0; white-space: pre-wrap; }

@@ -258,6 +258,18 @@
     </form>
   </dialog>
 
+  <!-- 確認ダイアログ（ほかのダイアログの上にも重ねて出す） -->
+  <dialog id="confirm-dialog">
+    <form method="dialog" class="dialog-form">
+      <p id="confirm-message"></p>
+      <div class="dialog-actions">
+        <span class="spacer"></span>
+        <button value="cancel" id="btn-confirm-cancel">キャンセル</button>
+        <button value="ok" class="primary" id="btn-confirm-ok">OK</button>
+      </div>
+    </form>
+  </dialog>
+
   <script src="js/planner.js"></script>
   <script src="js/textformat.js"></script>
   <script src="js/schedule.js"></script>

@@ -33,8 +33,36 @@
     return { tasks: [], logs: {}, events: [], schedule: [] };
   }
 
+  let saveWarned = false;
   function save() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch (e) {
+      // プライベートブラウズなどで保存できない場合も、表示中の操作は続けられるようにする
+      console.warn('保存できませんでした', e);
+      if (!saveWarned) {
+        saveWarned = true;
+        askConfirm('このブラウザではデータを保存できません（プライベートブラウズなど）。ページを閉じると入力した内容は消えます。', { ok: 'OK', cancel: null });
+      }
+    }
+  }
+
+  // 確認ダイアログ。ブラウザの confirm() が使えない環境（埋め込み表示など）でも動くよう、ページ内に出す。
+  // cancel を null にすると OK だけのお知らせになる。結果は OK なら true
+  const confirmDialog = document.getElementById('confirm-dialog');
+  function askConfirm(message, { ok = 'OK', cancel = 'キャンセル', danger = false } = {}) {
+    document.getElementById('confirm-message').textContent = message;
+    const okBtn = document.getElementById('btn-confirm-ok');
+    const cancelBtn = document.getElementById('btn-confirm-cancel');
+    okBtn.textContent = ok;
+    okBtn.classList.toggle('danger-fill', danger);
+    cancelBtn.hidden = cancel === null;
+    if (cancel !== null) cancelBtn.textContent = cancel;
+    confirmDialog.returnValue = ''; // Esc で閉じたときに前回の結果が残らないように
+    confirmDialog.showModal();
+    return new Promise((resolve) => {
+      confirmDialog.addEventListener('close', () => resolve(confirmDialog.returnValue === 'ok'), { once: true });
+    });
   }
 
   function today() {
@@ -372,9 +400,9 @@
 
   document.getElementById('btn-cancel').addEventListener('click', () => dialog.close());
 
-  document.getElementById('btn-delete').addEventListener('click', () => {
+  document.getElementById('btn-delete').addEventListener('click', async () => {
     const task = state.tasks.find((x) => x.id === editingId);
-    if (!task || !confirm(`「${task.title}」を削除しますか？記録も消えます。`)) return;
+    if (!task || !(await askConfirm(`「${task.title}」を削除しますか？記録も消えます。`, { ok: '削除', danger: true }))) return;
     state.tasks = state.tasks.filter((x) => x.id !== editingId);
     // このタスクを元にした復習タスクは残し、ひも付けだけ外す
     for (const x of state.tasks) if (x.reviewOf === editingId) delete x.reviewOf;
@@ -444,7 +472,7 @@
     try {
       const data = JSON.parse(await file.text());
       if (!Array.isArray(data.tasks) || typeof data.logs !== 'object') throw new Error('形式が違います');
-      if (!confirm('現在のデータを読み込んだデータで置き換えますか？')) return;
+      if (!(await askConfirm('現在のデータを読み込んだデータで置き換えますか？', { ok: '置き換える', danger: true }))) return;
       state = {
         tasks: data.tasks,
         logs: data.logs,
@@ -454,7 +482,7 @@
       save();
       renderAll();
     } catch (err) {
-      alert(`読み込みに失敗しました: ${err.message}`);
+      askConfirm(`読み込みに失敗しました: ${err.message}`, { cancel: null });
     }
   });
 
@@ -643,9 +671,9 @@
 
   document.getElementById('btn-event-cancel').addEventListener('click', () => eventDialog.close());
 
-  document.getElementById('btn-event-delete').addEventListener('click', () => {
+  document.getElementById('btn-event-delete').addEventListener('click', async () => {
     const ev = state.events.find((x) => x.id === editingEventId);
-    if (!ev || !confirm(`「${ev.title}」を削除しますか？`)) return;
+    if (!ev || !(await askConfirm(`「${ev.title}」を削除しますか？`, { ok: '削除', danger: true }))) return;
     state.events = state.events.filter((x) => x.id !== editingEventId);
     save();
     eventDialog.close();
@@ -658,18 +686,43 @@
   const importText = document.getElementById('import-text');
   const preview = document.getElementById('import-preview');
 
-  async function copyText(text, statusId, failMessage) {
+  async function copyText(text, statusId) {
     const status = document.getElementById(statusId);
+    hideManualCopy(statusId);
     try {
       await navigator.clipboard.writeText(text);
       status.textContent = 'コピーしました。チャットに貼り付けてください。';
     } catch (err) {
-      status.textContent = failMessage;
+      showManualCopy(statusId, text);
     }
   }
 
+  // 自動でコピーできない環境では、テキストを選択した状態で表示して手でコピーしてもらう
+  function showManualCopy(statusId, text) {
+    const status = document.getElementById(statusId);
+    status.textContent = '自動でコピーできませんでした。下の枠のテキストが選択されているので、Ctrl+C（⌘+C）でコピーしてください。';
+    let area = document.getElementById(`${statusId}-manual`);
+    if (!area) {
+      area = document.createElement('textarea');
+      area.id = `${statusId}-manual`;
+      area.className = 'manual-copy';
+      area.rows = 6;
+      area.readOnly = true;
+      area.setAttribute('aria-label', 'コピーするテキスト');
+      status.after(area);
+    }
+    area.value = text;
+    area.focus();
+    area.select();
+  }
+
+  function hideManualCopy(statusId) {
+    const area = document.getElementById(`${statusId}-manual`);
+    if (area) area.remove();
+  }
+
   document.getElementById('btn-copy-text').addEventListener('click', () => {
-    copyText(TF.serialize(state, today()), 'copy-status', 'コピーできませんでした。「ファイルに保存」を使ってください。');
+    copyText(TF.serialize(state, today()), 'copy-status');
   });
 
   function consultPromptText() {
@@ -677,7 +730,7 @@
   }
 
   document.getElementById('btn-copy-prompt').addEventListener('click', () => {
-    copyText(consultPromptText(), 'prompt-status', 'コピーできませんでした。README のプロンプトを使ってください。');
+    copyText(consultPromptText(), 'prompt-status');
   });
 
   // チャットを新しいタブで開く前に、同じクリックの中でコピーを済ませる
@@ -703,10 +756,17 @@
   document.getElementById('consult-panel').addEventListener('click', (e) => {
     const link = e.target.closest('[data-action="copy-open"]');
     if (!link) return;
-    const ok = copySync(consultPromptText());
-    document.getElementById('prompt-status').textContent = ok
-      ? `コピーしました。開いたチャットに貼り付けて送ってください。`
-      : 'コピーできませんでした。「プロンプトをコピー」を押してから、開いたチャットに貼り付けてください。';
+    const text = consultPromptText();
+    const status = document.getElementById('prompt-status');
+    hideManualCopy('prompt-status');
+    if (copySync(text)) {
+      status.textContent = 'コピーしました。開いたチャットに貼り付けて送ってください。';
+      return;
+    }
+    // execCommand が使えなければクリップボード API を試し、それも駄目なら手でコピーしてもらう
+    navigator.clipboard.writeText(text)
+      .then(() => { status.textContent = 'コピーしました。開いたチャットに貼り付けて送ってください。'; })
+      .catch(() => showManualCopy('prompt-status', text));
   });
 
   document.getElementById('btn-paste').addEventListener('click', async () => {
@@ -716,7 +776,7 @@
     } catch (err) {
       importText.focus();
       preview.hidden = false;
-      preview.innerHTML = '<p>クリップボードを読み取れませんでした。入力欄に貼り付け（Ctrl+V / ⌘+V）してから「内容を確認」を押してください。</p>';
+      preview.innerHTML = '<p>クリップボードを読み取れませんでした。入力欄をクリックして貼り付け（Ctrl+V / ⌘+V）てから「内容を確認」を押してください。</p>';
     }
   });
 
@@ -948,7 +1008,7 @@
     blockDialog.showModal();
   }
 
-  blockForm.addEventListener('submit', (e) => {
+  blockForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const f = blockForm.elements;
     const once = blockForm.querySelector('input[name="repeat"]:checked').value === 'once';
@@ -972,7 +1032,7 @@
       return;
     }
     const clash = S.overlaps(state.schedule, block);
-    if (clash.length && !confirm(`${clash.map((b) => `${b.start}〜${b.end}`).join('、')} のコマと時間が重なります。このまま保存しますか？`)) return;
+    if (clash.length && !(await askConfirm(`${clash.map((b) => `${b.start}〜${b.end}`).join('、')} のコマと時間が重なります。このまま保存しますか？`, { ok: '保存する' }))) return;
 
     const i = state.schedule.findIndex((x) => x.id === block.id);
     if (i >= 0) state.schedule[i] = block;
@@ -985,9 +1045,9 @@
 
   document.getElementById('btn-add-block').addEventListener('click', () => openBlockDialog(null));
   document.getElementById('btn-block-cancel').addEventListener('click', () => blockDialog.close());
-  document.getElementById('btn-block-delete').addEventListener('click', () => {
+  document.getElementById('btn-block-delete').addEventListener('click', async () => {
     const block = state.schedule.find((x) => x.id === editingBlockId);
-    if (!block || !confirm(`${block.start}〜${block.end} のコマを削除しますか？`)) return;
+    if (!block || !(await askConfirm(`${block.start}〜${block.end} のコマを削除しますか？`, { ok: '削除', danger: true }))) return;
     state.schedule = state.schedule.filter((x) => x.id !== editingBlockId);
     save();
     blockDialog.close();
