@@ -281,8 +281,90 @@
     return start + Math.round(((task.total - start) * elapsed) / all);
   }
 
+  // ---------- 実際のペースと見通し ----------
+
+  // 直近 n 学習日（今日を含まない）の、1学習日あたりの実績。期間中に学習日以外にやった分も含める。
+  // 開始日より前は数えない。数えられる学習日がなければ null
+  function recentPace(task, logs, today, n = 7) {
+    const days = [];
+    for (let d = addDays(today, -1); d >= task.startDate && days.length < n; d = addDays(d, -1)) {
+      if (isStudyDay(task, d)) days.push(d);
+    }
+    if (days.length === 0) return null;
+    let sum = 0;
+    for (let d = days[days.length - 1]; d < today; d = addDays(d, 1)) sum += doneOn(task, logs, d);
+    return { pace: sum / days.length, days: days.length };
+  }
+
+  // 最近のペースで進めた場合に終わる日。今日すでに記録していれば明日から、まだなら今日から数える。
+  // { done: true } / ペースが分からない・0 なら date: null / それ以外は date と期限からの遅れ（日数、早ければ負）
+  function projectFinish(task, logs, today, n = 7) {
+    const remaining = Math.max(0, task.total - totalDone(task, logs));
+    if (remaining === 0) return { done: true };
+    const recent = recentPace(task, logs, today, n);
+    if (!recent || recent.pace <= 0) return { done: false, date: null, pace: recent ? 0 : null, sampleDays: recent ? recent.days : 0 };
+    let d = doneOn(task, logs, today) > 0 ? addDays(today, 1) : today;
+    let left = remaining;
+    for (let i = 0; i < 3660; i++, d = addDays(d, 1)) {
+      if (!isStudyDay(task, d)) continue;
+      left -= recent.pace;
+      if (left <= 1e-9) break;
+    }
+    return { done: false, date: d, pace: recent.pace, sampleDays: recent.days, delay: diffDays(task.deadline, d) };
+  }
+
+  // 今日の開始時点の残量を、今日から期限までの学習日で割った1日あたりの量（学習日がなければ null）
+  function requiredPace(task, logs, today) {
+    const remaining = Math.max(0, task.total - doneBefore(task, logs, today));
+    const days = studyDaysBetween(task, today < task.startDate ? task.startDate : today, task.deadline).length;
+    return days ? remaining / days : null;
+  }
+
+  // 遅れたタスクの立て直し方の候補（表示の文言は画面側で決める）。
+  // changes をタスクに当てはめるとその案になる。perDay はその案での1日あたりの量
+  function recoveryOptions(task, logs, today) {
+    const options = [];
+    const add = (id, changes) => {
+      const perDay = requiredPace({ ...task, ...changes }, logs, today);
+      if (perDay !== null) options.push({ id, changes, perDay });
+    };
+    const projection = projectFinish(task, logs, today);
+    if (projection.date && projection.date > task.deadline) {
+      add('pace', { deadline: projection.date });
+    }
+    const base = task.deadline < today ? today : task.deadline;
+    const extended = addDays(base, 7);
+    if (!options.some((o) => o.changes.deadline === extended)) {
+      add('extend', { deadline: extended });
+    }
+    if (task.studyDays.length < 7 && task.deadline >= today) {
+      add('everyday', { studyDays: [0, 1, 2, 3, 4, 5, 6] });
+    }
+    // 最近のペースのままで期限までに終わる量まで、全体量を減らす
+    if (projection.pace > 0 && task.deadline >= today) {
+      const days = studyDaysBetween(task, today < task.startDate ? task.startDate : today, task.deadline).length;
+      const total = doneBefore(task, logs, today) + Math.floor(projection.pace * days);
+      if (total < task.total && total > totalDone(task, logs)) {
+        add('reduce', { total });
+      }
+    }
+    if (task.deadline >= today) add('keep', {});
+    return options;
+  }
+
+  // 記録が一つもない日のうち、ノルマのあった日か（記録のつけ忘れの候補）
+  function isUnrecordedDay(tasks, logs, date) {
+    if (logs[date] && Object.keys(logs[date]).length > 0) return false;
+    return dayAchievement(tasks, logs, date).count > 0;
+  }
+
   const Planner = {
     REVIEW_TAG,
+    recentPace,
+    projectFinish,
+    requiredPace,
+    recoveryOptions,
+    isUnrecordedDay,
     logsUntil,
     dayAchievement,
     achievementSeries,

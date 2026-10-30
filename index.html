@@ -24,12 +24,12 @@
     <!-- 今日のタスク -->
     <section id="view-today" class="view active">
       <div class="countdown" id="countdown-today"></div>
-      <div id="now-panel"></div>
+      <div class="notice" id="missing-notice" hidden></div>
       <div class="today-head">
         <h2 id="today-label"></h2>
         <div class="summary" id="today-summary"></div>
       </div>
-      <ul class="card-list" id="today-list"></ul>
+      <div id="today-flow"></div>
       <p class="empty" id="today-empty" hidden>今日のノルマはありません。<button class="link" data-goto="tasks">タスクを追加</button></p>
     </section>
 
@@ -101,6 +101,21 @@
     <section id="view-stats" class="view">
       <h2>達成度</h2>
       <div class="stat-row" id="stat-tiles"></div>
+
+      <div class="panel chart-panel">
+        <h3>完了の見通し</h3>
+        <p class="note">最近7日の実際のペースで進めた場合に、終わる日です。タスクを選ぶとグラフで見られます。</p>
+        <ul class="forecast-list" id="forecast-list"></ul>
+        <div id="forecast-chart-area">
+          <div class="legend">
+            <span><i class="key-line"></i>実績</span>
+            <span><i class="key-line dashed"></i>このペースの見込み</span>
+            <span><i class="key-line plan"></i>当初の計画</span>
+          </div>
+          <div class="chart" id="chart-forecast"></div>
+          <div class="btn-row" id="forecast-actions"></div>
+        </div>
+      </div>
 
       <div class="panel chart-panel">
         <h3>日ごとのノルマ達成率（直近14日）</h3>
@@ -255,6 +270,20 @@
         <span class="spacer"></span>
         <button type="button" id="btn-block-cancel">キャンセル</button>
         <button type="submit" class="primary">保存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- 遅れの立て直しダイアログ -->
+  <dialog id="recover-dialog">
+    <form id="recover-form" class="dialog-form" method="dialog">
+      <h2 id="recover-title"></h2>
+      <div id="recover-body"></div>
+      <button type="button" class="link" id="btn-recover-ai">どれも合わないときは AI に相談する</button>
+      <div class="dialog-actions">
+        <span class="spacer"></span>
+        <button type="button" id="btn-recover-cancel">キャンセル</button>
+        <button type="submit" class="primary">この内容で変更</button>
       </div>
     </form>
   </dialog>

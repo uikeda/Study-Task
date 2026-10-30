@@ -6,6 +6,7 @@
   --subj-2: #1baf7a;
   --subj-3: #c2409a;
   --subj-other: #8a93a3;
+  --plan: #b8c0cc;
   --bg: #f6f7f9;
   --surface: #ffffff;
   --text: #1d2330;
@@ -31,6 +32,7 @@
     --subj-2: #199e70;
     --subj-3: #cc5aa8;
     --subj-other: #7d8695;
+    --plan: #5b6472;
     --bg: #14171c;
     --surface: #1d2129;
     --text: #e7e9ee;
@@ -56,6 +58,7 @@
   --subj-2: #199e70;
   --subj-3: #cc5aa8;
   --subj-other: #7d8695;
+  --plan: #5b6472;
   --bg: #14171c;
   --surface: #1d2129;
   --text: #e7e9ee;
@@ -354,28 +357,161 @@ textarea {
 .filter { border-radius: 999px; padding: 4px 12px; font-size: 0.9rem; }
 .filter.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
 
-/* 今やること（今日タブ） */
-#now-panel:empty { display: none; }
-#now-panel { margin-bottom: 14px; }
-.now-card {
+/* 今日タブ: 時間の流れに沿ったカード */
+.notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+}
+.notice-text { flex: 1 1 220px; min-width: 0; font-size: 0.9rem; }
+.flow-head { margin: 16px 0 8px; font-size: 0.85rem; color: var(--muted); font-weight: 600; }
+.flow-head:first-child { margin-top: 0; }
+.flow-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.tcard {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-left: 4px solid var(--accent);
   border-radius: var(--radius);
-  padding: 10px 14px;
+  padding: 10px 12px;
+  display: grid;
+  gap: 6px;
 }
-.now-card.idle { border-left-color: var(--border); }
-.now-label { font-size: 0.8rem; color: var(--muted); }
-.now-title { font-size: 1.15rem; font-weight: 600; word-break: break-word; }
-.now-sub { color: var(--muted); font-size: 0.85rem; }
-.now-next { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border); font-size: 0.9rem; }
-.now-card details { margin-top: 6px; font-size: 0.85rem; }
-.now-card summary { cursor: pointer; color: var(--muted); }
-.mini-blocks { list-style: none; margin: 4px 0 0; padding: 0; }
-.mini-blocks li { padding: 2px 0; }
-.mini-blocks li.past { color: var(--muted); }
-.mini-blocks li.current { font-weight: 600; color: var(--accent); }
-.card.now { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.tcard.is-now {
+  border: 2px solid var(--text);
+  padding: 9px 11px;
+  background: color-mix(in srgb, var(--subj) 12%, var(--surface));
+}
+.tcard-head { font-size: 0.8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.tcard.is-now .tcard-head { color: var(--text); font-weight: 600; }
+.tcard-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.tcard-top .card-title::before, .tdone-title .card-title::before {
+  content: "";
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--subj);
+  margin-right: 6px;
+}
+.tcard-amount { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; }
+.tcard-amount input, .tdone-amount input, .record-input input {
+  width: 72px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  font-size: 1.05rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.tcard-rest { margin-left: auto; font-size: 0.85rem; color: var(--muted); }
+.tcard-rest strong { color: var(--text); }
+.tcard-bar { height: 6px; border-radius: 999px; background: color-mix(in srgb, var(--text) 12%, transparent); overflow: hidden; }
+.tcard-bar > span { display: block; height: 100%; border-radius: 999px; background: var(--subj); }
+.tcard-actions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.tcard-actions button { min-height: 44px; padding: 6px 4px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tcard-actions button:disabled { opacity: 0.4; cursor: default; }
+.tcard-recover { justify-self: start; font-size: 0.85rem; }
+.tslot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: baseline;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+}
+.tslot.is-now { border: 2px solid var(--text); padding: 9px 11px; }
+.tslot-time { font-size: 0.85rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.tslot.is-now .tslot-time { color: var(--text); font-weight: 600; }
+.tslot-title { font-weight: 600; }
+.tdone {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--muted);
+}
+.tdone-check { color: var(--ok); flex-shrink: 0; }
+.tdone-title { flex: 1; min-width: 0; }
+.tdone-title .card-title { font-weight: 500; }
+.tdone-amount { white-space: nowrap; font-size: 0.85rem; }
+.tdone-amount input { width: 60px; font-size: 0.95rem; }
+.now-tag { display: inline-block; font-size: 0.7rem; font-weight: 700; padding: 0 6px; margin-right: 6px; border-radius: 4px; background: var(--text); color: var(--surface); vertical-align: 1px; }
+
+/* カレンダー: 記録の入力 */
+.cal-day.missing { border: 1px dashed var(--muted); }
+.cal-day .count.missing-label { color: var(--text); font-weight: 600; }
+.record-edit { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 8px; }
+.record-edit li { display: flex; align-items: center; gap: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.record-edit li:last-child { border-bottom: none; }
+.record-edit .grow { flex: 1; min-width: 0; }
+.record-input { white-space: nowrap; }
+.record-impact { padding: 8px 10px; border-radius: 8px; background: var(--accent-soft); font-size: 0.85rem; }
+.record-impact ul { margin: 4px 0 0; padding-left: 1.2em; }
+
+/* 遅れの立て直し */
+#recover-dialog { width: min(520px, calc(100vw - 32px)); }
+#recover-body { display: grid; gap: 10px; }
+#btn-recover-ai { justify-self: start; }
+#recover-form .dialog-actions button { white-space: nowrap; }
+#recover-body .meta { margin: 0; }
+.insight { padding: 10px 12px; border-radius: 10px; background: var(--warn-soft); font-size: 0.9rem; }
+.insight-main { margin-top: 2px; font-weight: 700; color: var(--warn); }
+.recover-options { display: grid; gap: 8px; }
+.recover-option {
+  display: flex !important;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+}
+.recover-option:has(input:checked) { border: 2px solid var(--accent); padding: 7px 11px; background: var(--accent-soft); }
+.recover-option input { width: 18px; height: 18px; margin: 0; flex-shrink: 0; }
+.recover-option .grow { flex: 1; min-width: 0; display: grid; }
+.recover-option .meta { margin: 0; }
+.per-day { white-space: nowrap; font-size: 0.8rem; color: var(--muted); }
+.per-day strong { font-size: 1.15rem; color: var(--text); font-variant-numeric: tabular-nums; }
+
+/* 達成度: 完了の見通し */
+.forecast-list { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 6px; }
+.fc-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  padding: 8px 12px;
+  border-radius: 10px;
+}
+.fc-row.selected { border: 2px solid var(--accent); padding: 7px 11px; background: var(--accent-soft); }
+.fc-main { flex: 1; min-width: 0; display: grid; }
+.fc-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fc-main .meta { margin: 0; }
+.fc-when { display: grid; justify-items: end; gap: 2px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.fc-chip { font-size: 0.72rem; font-weight: 700; padding: 1px 8px; border-radius: 999px; background: var(--border); color: var(--muted); }
+.fc-chip.late { background: var(--warn-soft); color: var(--warn); }
+.fc-chip.ok { background: var(--ok-soft); color: var(--ok); }
+.chart .fc-actual { fill: none; stroke: var(--subj); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart .fc-proj { stroke: var(--subj); stroke-width: 2; stroke-dasharray: 5 4; stroke-linecap: round; }
+.chart .fc-plan { stroke: var(--plan); stroke-width: 2; stroke-linecap: round; }
+.chart .fc-deadline { stroke: var(--text); stroke-width: 1; }
+.chart .fc-now { fill: var(--subj); stroke: var(--surface); stroke-width: 2; }
+.chart .fc-end { fill: var(--surface); stroke: var(--subj); stroke-width: 2; }
+.key-line { display: inline-block; width: 18px; height: 0; border-top: 2px solid var(--subj, var(--chart-1)); }
+.key-line.dashed { border-top-style: dashed; }
+.key-line.plan { border-top-color: var(--plan); }
+#forecast-chart-area .legend { margin-top: 4px; }
 
 /* 時間割タブ: 1日のタイムライン */
 .subj-0 { --subj: var(--subj-0); }

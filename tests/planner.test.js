@@ -189,3 +189,61 @@ test('expectedDone は計画どおりなら終えているはずの量を返す'
   assert.equal(P.expectedDone(task, '2026-10-06'), 60); // 5 学習日経過: 20 + 80 * 5/10
   assert.equal(P.expectedDone(task, '2026-10-11'), 100);
 });
+
+// 10/29（木）時点の例: 月〜土、240問、10/20〜11/15。昨日までに 50問、今日 5問
+function behindTask() {
+  return makeTask({ id: 'm', total: 240, startDate: '2026-10-20', deadline: '2026-11-15', studyDays: [1, 2, 3, 4, 5, 6] });
+}
+function behindLogs() {
+  const logs = {};
+  [['10-20', 4], ['10-21', 6], ['10-22', 9], ['10-23', 5], ['10-24', 8], ['10-26', 7], ['10-27', 6], ['10-28', 5], ['10-29', 5]]
+    .forEach(([d, n]) => { logs[`2026-${d}`] = { m: n }; });
+  return logs;
+}
+
+test('recentPace は今日を含まない直近の学習日あたりの実績を返す', () => {
+  const r = P.recentPace(behindTask(), behindLogs(), '2026-10-29');
+  assert.equal(r.days, 7); // 10/21〜10/28 のうち日曜を除く7日
+  assert.equal(r.pace, 46 / 7);
+  assert.equal(P.recentPace(behindTask(), behindLogs(), '2026-10-20'), null);
+  // 学習日以外にやった分も数える
+  const logs = { ...behindLogs(), '2026-10-25': { m: 7 } };
+  assert.equal(P.recentPace(behindTask(), logs, '2026-10-29').pace, 53 / 7);
+});
+
+test('projectFinish は最近のペースで終わる日と期限からの遅れを返す', () => {
+  const p = P.projectFinish(behindTask(), behindLogs(), '2026-10-29');
+  // 残り185問 ÷ 6.57問 → 29学習日。今日は記録済みなので明日（10/30）から数える
+  assert.equal(p.date, '2026-12-02');
+  assert.equal(p.delay, 17);
+  assert.equal(p.sampleDays, 7);
+  assert.deepEqual(P.projectFinish(makeTask(), { '2026-10-01': { t1: 100 } }, '2026-10-02'), { done: true });
+  assert.equal(P.projectFinish(behindTask(), {}, '2026-10-29').date, null); // 記録がなくペースが 0
+});
+
+test('recoveryOptions は期限・学習日・量を変えた案と、それぞれの1日の量を返す', () => {
+  const opts = P.recoveryOptions(behindTask(), behindLogs(), '2026-10-29');
+  const by = Object.fromEntries(opts.map((o) => [o.id, o]));
+  assert.deepEqual(opts.map((o) => o.id), ['pace', 'extend', 'everyday', 'reduce', 'keep']);
+  assert.deepEqual(by.pace.changes, { deadline: '2026-12-02' });
+  assert.ok(by.pace.perDay < 7);
+  assert.deepEqual(by.extend.changes, { deadline: '2026-11-22' });
+  assert.equal(by.extend.perDay, 190 / 21);
+  assert.equal(by.everyday.perDay, 190 / 18);
+  assert.equal(by.reduce.changes.total, 50 + Math.floor((46 / 7) * 15)); // 最近のペースで期限までに終わる量
+  assert.equal(by.keep.perDay, 190 / 15);
+});
+
+test('recoveryOptions は期限切れのタスクに「このまま」を出さず、今日から1週間延ばす案を出す', () => {
+  const task = { ...behindTask(), deadline: '2026-10-27' };
+  const opts = P.recoveryOptions(task, behindLogs(), '2026-10-29');
+  assert.ok(!opts.some((o) => o.id === 'keep' || o.id === 'everyday' || o.id === 'reduce'));
+  assert.ok(opts.some((o) => o.id === 'extend' && o.changes.deadline === '2026-11-05'));
+});
+
+test('isUnrecordedDay はノルマがあって記録が一つもない日だけ true', () => {
+  const task = makeTask();
+  assert.equal(P.isUnrecordedDay([task], {}, '2026-10-02'), true);
+  assert.equal(P.isUnrecordedDay([task], { '2026-10-02': { t1: 3 } }, '2026-10-02'), false);
+  assert.equal(P.isUnrecordedDay([task], {}, '2026-09-30'), false); // 開始前
+});
