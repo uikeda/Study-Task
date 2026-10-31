@@ -225,8 +225,151 @@
     };
   }
 
+  // ---------- 達成度 ----------
+
+  // date までの記録だけを残したログ（過去の日のノルマを、その日の時点の状態で計算し直すため）
+  function logsUntil(logs, date) {
+    const result = {};
+    for (const [d, entries] of Object.entries(logs)) if (d <= date) result[d] = entries;
+    return result;
+  }
+
+  // その日のノルマ達成度。ノルマのあるタスクごとの達成率（上限100%）の平均。
+  // 単位の違うタスク（ページと語など）を量で足し合わせないよう、タスク単位で平均する。
+  // date より後に登録したタスクは、その日の評価に含めない。
+  function dayAchievement(tasks, logs, date) {
+    const until = logsUntil(logs, date);
+    const items = [];
+    for (const task of tasks) {
+      if (task.createdAt && formatDate(new Date(task.createdAt)) > date) continue;
+      const a = analyzeTask(task, until, date);
+      if (a.quota > 0) items.push({ task, quota: a.quota, done: a.doneToday, ratio: Math.min(1, a.doneToday / a.quota) });
+    }
+    const cleared = items.filter((x) => x.done >= x.quota).length;
+    const rate = items.length ? items.reduce((s, x) => s + x.ratio, 0) / items.length : null;
+    return { date, rate, cleared, count: items.length, items };
+  }
+
+  // today までの numDays 日分の達成度（古い順）
+  function achievementSeries(tasks, logs, today, numDays) {
+    return Array.from({ length: numDays }, (_, i) => dayAchievement(tasks, logs, addDays(today, i - numDays + 1)));
+  }
+
+  // 全ノルマを達成した日が何日続いているか。ノルマのない日は数えずに飛ばす。
+  // 今日がまだ達成途中なら、昨日までの連続日数を返す。
+  function streak(tasks, logs, today) {
+    if (tasks.length === 0) return 0;
+    const earliest = tasks.reduce((m, t) => (t.startDate < m ? t.startDate : m), tasks[0].startDate);
+    let count = 0;
+    for (let d = today; d >= earliest; d = addDays(d, -1)) {
+      const day = dayAchievement(tasks, logs, d);
+      if (day.count === 0) continue;
+      if (day.cleared === day.count) count++;
+      else if (d !== today) break;
+    }
+    return count;
+  }
+
+  // 計画どおりなら today の開始時点で終えているはずの量（当初の計画を学習日で均等割り）
+  function expectedDone(task, today) {
+    const start = task.initialDone || 0;
+    if (today <= task.startDate) return start;
+    if (today > task.deadline) return task.total;
+    const all = studyDaysBetween(task, task.startDate, task.deadline).length;
+    if (all === 0) return start;
+    const elapsed = studyDaysBetween(task, task.startDate, addDays(today, -1)).length;
+    return start + Math.round(((task.total - start) * elapsed) / all);
+  }
+
+  // ---------- 実際のペースと見通し ----------
+
+  // 直近 n 学習日（今日を含まない）の、1学習日あたりの実績。期間中に学習日以外にやった分も含める。
+  // 開始日より前は数えない。数えられる学習日がなければ null
+  function recentPace(task, logs, today, n = 7) {
+    const days = [];
+    for (let d = addDays(today, -1); d >= task.startDate && days.length < n; d = addDays(d, -1)) {
+      if (isStudyDay(task, d)) days.push(d);
+    }
+    if (days.length === 0) return null;
+    let sum = 0;
+    for (let d = days[days.length - 1]; d < today; d = addDays(d, 1)) sum += doneOn(task, logs, d);
+    return { pace: sum / days.length, days: days.length };
+  }
+
+  // 最近のペースで進めた場合に終わる日。今日すでに記録していれば明日から、まだなら今日から数える。
+  // { done: true } / ペースが分からない・0 なら date: null / それ以外は date と期限からの遅れ（日数、早ければ負）
+  function projectFinish(task, logs, today, n = 7) {
+    const remaining = Math.max(0, task.total - totalDone(task, logs));
+    if (remaining === 0) return { done: true };
+    const recent = recentPace(task, logs, today, n);
+    if (!recent || recent.pace <= 0) return { done: false, date: null, pace: recent ? 0 : null, sampleDays: recent ? recent.days : 0 };
+    let d = doneOn(task, logs, today) > 0 ? addDays(today, 1) : today;
+    let left = remaining;
+    for (let i = 0; i < 3660; i++, d = addDays(d, 1)) {
+      if (!isStudyDay(task, d)) continue;
+      left -= recent.pace;
+      if (left <= 1e-9) break;
+    }
+    return { done: false, date: d, pace: recent.pace, sampleDays: recent.days, delay: diffDays(task.deadline, d) };
+  }
+
+  // 今日の開始時点の残量を、今日から期限までの学習日で割った1日あたりの量（学習日がなければ null）
+  function requiredPace(task, logs, today) {
+    const remaining = Math.max(0, task.total - doneBefore(task, logs, today));
+    const days = studyDaysBetween(task, today < task.startDate ? task.startDate : today, task.deadline).length;
+    return days ? remaining / days : null;
+  }
+
+  // 遅れたタスクの立て直し方の候補（表示の文言は画面側で決める）。
+  // changes をタスクに当てはめるとその案になる。perDay はその案での1日あたりの量
+  function recoveryOptions(task, logs, today) {
+    const options = [];
+    const add = (id, changes) => {
+      const perDay = requiredPace({ ...task, ...changes }, logs, today);
+      if (perDay !== null) options.push({ id, changes, perDay });
+    };
+    const projection = projectFinish(task, logs, today);
+    if (projection.date && projection.date > task.deadline) {
+      add('pace', { deadline: projection.date });
+    }
+    const base = task.deadline < today ? today : task.deadline;
+    const extended = addDays(base, 7);
+    if (!options.some((o) => o.changes.deadline === extended)) {
+      add('extend', { deadline: extended });
+    }
+    if (task.studyDays.length < 7 && task.deadline >= today) {
+      add('everyday', { studyDays: [0, 1, 2, 3, 4, 5, 6] });
+    }
+    // 最近のペースのままで期限までに終わる量まで、全体量を減らす
+    if (projection.pace > 0 && task.deadline >= today) {
+      const days = studyDaysBetween(task, today < task.startDate ? task.startDate : today, task.deadline).length;
+      const total = doneBefore(task, logs, today) + Math.floor(projection.pace * days);
+      if (total < task.total && total > totalDone(task, logs)) {
+        add('reduce', { total });
+      }
+    }
+    if (task.deadline >= today) add('keep', {});
+    return options;
+  }
+
+  // 記録が一つもない日のうち、ノルマのあった日か（記録のつけ忘れの候補）
+  function isUnrecordedDay(tasks, logs, date) {
+    if (logs[date] && Object.keys(logs[date]).length > 0) return false;
+    return dayAchievement(tasks, logs, date).count > 0;
+  }
+
   const Planner = {
     REVIEW_TAG,
+    recentPace,
+    projectFinish,
+    requiredPace,
+    recoveryOptions,
+    isUnrecordedDay,
+    logsUntil,
+    dayAchievement,
+    achievementSeries,
+    streak,
+    expectedDone,
     isReview,
     completedOn,
     reviewSummary,

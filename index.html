@@ -11,9 +11,11 @@
     <h1>Study Task</h1>
     <nav class="tabs" role="tablist">
       <button class="tab active" data-view="today" role="tab">今日</button>
+      <button class="tab" data-view="schedule" role="tab">時間割</button>
       <button class="tab" data-view="calendar" role="tab">カレンダー</button>
       <button class="tab" data-view="tasks" role="tab">タスク</button>
       <button class="tab" data-view="week" role="tab">週間</button>
+      <button class="tab" data-view="stats" role="tab">達成度</button>
       <button class="tab" data-view="sync" role="tab">連携</button>
     </nav>
   </header>
@@ -22,12 +24,31 @@
     <!-- 今日のタスク -->
     <section id="view-today" class="view active">
       <div class="countdown" id="countdown-today"></div>
+      <div class="notice" id="missing-notice" hidden></div>
       <div class="today-head">
         <h2 id="today-label"></h2>
         <div class="summary" id="today-summary"></div>
       </div>
-      <ul class="card-list" id="today-list"></ul>
+      <div id="today-flow"></div>
       <p class="empty" id="today-empty" hidden>今日のノルマはありません。<button class="link" data-goto="tasks">タスクを追加</button></p>
+    </section>
+
+    <!-- 時間割 -->
+    <section id="view-schedule" class="view">
+      <div class="section-head">
+        <h2>時間割</h2>
+        <button class="primary" id="btn-add-block">＋ 時間を追加</button>
+      </div>
+      <p class="note">どの時間にどのタスクをやるかを決めておくと、「今日」タブに今やるタスクが表示されます。コマを押すと編集できます。</p>
+      <div class="cal-head">
+        <button id="sched-prev" aria-label="前の日">‹</button>
+        <h2 id="sched-title"></h2>
+        <button id="sched-next" aria-label="次の日">›</button>
+        <button id="sched-today">今日</button>
+      </div>
+      <div class="sched-legend" id="sched-legend"></div>
+      <div class="timeline" id="sched-timeline"></div>
+      <p class="empty" id="block-empty" hidden>この日の時間割はありません。「＋ 時間を追加」から登録してください。</p>
     </section>
 
     <!-- カレンダー -->
@@ -76,16 +97,66 @@
       <div class="table-wrap"><table id="week-table"></table></div>
     </section>
 
+    <!-- 達成度 -->
+    <section id="view-stats" class="view">
+      <h2>達成度</h2>
+      <div class="stat-row" id="stat-tiles"></div>
+
+      <div class="panel chart-panel">
+        <h3>完了の見通し</h3>
+        <p class="note">最近7日の実際のペースで進めた場合に、終わる日です。タスクを選ぶとグラフで見られます。</p>
+        <ul class="forecast-list" id="forecast-list"></ul>
+        <div id="forecast-chart-area">
+          <div class="legend">
+            <span><i class="key-line"></i>実績</span>
+            <span><i class="key-line dashed"></i>このペースの見込み</span>
+            <span><i class="key-line plan"></i>当初の計画</span>
+          </div>
+          <div class="chart" id="chart-forecast"></div>
+          <div class="btn-row" id="forecast-actions"></div>
+        </div>
+      </div>
+
+      <div class="panel chart-panel">
+        <h3>日ごとのノルマ達成率（直近14日）</h3>
+        <p class="note">その日にノルマがあったタスクの達成率（100%が上限）の平均です。ノルマのない日は「–」。</p>
+        <div class="chart" id="chart-daily"></div>
+        <details class="chart-table">
+          <summary>表で見る</summary>
+          <div class="table-wrap"><table id="table-daily"></table></div>
+        </details>
+      </div>
+
+      <div class="panel chart-panel">
+        <h3>タスク別の進み具合</h3>
+        <p class="note">棒が実際に終えた割合、縦線が当初の計画どおりなら今日までに終えているはずの割合です。</p>
+        <div class="legend" id="progress-legend">
+          <span><i class="key-bar"></i>終えた割合</span>
+          <span><i class="key-tick"></i>計画の目安</span>
+        </div>
+        <div class="chart" id="chart-progress"></div>
+        <details class="chart-table">
+          <summary>表で見る</summary>
+          <div class="table-wrap"><table id="table-progress"></table></div>
+        </details>
+      </div>
+      <div class="tooltip" id="chart-tooltip" role="status" hidden></div>
+    </section>
+
     <!-- テキスト連携 -->
     <section id="view-sync" class="view">
       <h2>テキストで計画をやり取り</h2>
-      <p class="note">Claude などのチャットで立てた計画をアプリに取り込んだり、アプリの状況をチャットに渡して計画を見直してもらったりできます。</p>
+      <p class="note">Claude などのチャットで立てた計画をアプリに取り込んだり、アプリの状況をチャットに渡して計画を見直してもらったりできます。API キーや利用料は不要です。</p>
 
-      <div class="panel">
-        <h3>計画をチャットで新しく作る</h3>
-        <p class="note">今日の日付と出力形式を指定したプロンプトをコピーします。新しいチャットに貼り付け、末尾の「私の状況」に目標や教材を書き足して送ってください。返ってきたコードブロックの中身を下の「2. チャット → アプリ」に貼り付けます。</p>
+      <div class="panel" id="consult-panel">
+        <h3>AI に相談する（無料・コピー＆ペースト）</h3>
+        <p class="note">相談したいことを書いて、プロンプトをコピーします。Claude や ChatGPT などのチャット（無料プランで使えます）に貼り付けて送り、返ってきた計画を下の「2. チャット → アプリ」に貼り付けてください。今の計画と書式の説明もプロンプトに入るので、新しく計画を作るときも、見直すときも使えます。</p>
+        <textarea id="consult-text" rows="4" placeholder="例: 共通テストまでに青チャートと英単語を終えたい。平日は2時間、土日は5時間使えます。&#10;例: 数学を週3日に減らして、空いた日に古文単語を入れたい。"></textarea>
         <div class="btn-row">
           <button class="primary" id="btn-copy-prompt">プロンプトをコピー</button>
+          <a class="button" data-action="copy-open" href="https://claude.ai/new" target="_blank" rel="noopener">コピーして Claude を開く</a>
+          <a class="button" data-action="copy-open" href="https://chatgpt.com/" target="_blank" rel="noopener">コピーして ChatGPT を開く</a>
+          <a class="button" data-action="copy-open" href="https://gemini.google.com/app" target="_blank" rel="noopener">コピーして Gemini を開く</a>
         </div>
         <p class="status-msg" id="prompt-status" role="status"></p>
       </div>
@@ -106,6 +177,7 @@
         <textarea id="import-text" rows="10" placeholder="## タスク名&#10;- 量: 240 問&#10;- 期限: 2026-11-30&#10;- 曜日: 毎日"></textarea>
         <div class="btn-row">
           <button class="primary" id="btn-preview">内容を確認</button>
+          <button id="btn-paste">クリップボードから貼り付け</button>
           <label class="file-btn">ファイルを開く<input type="file" id="input-text-file" accept=".md,.txt,text/plain,text/markdown"></label>
         </div>
         <div id="import-preview" hidden></div>
@@ -173,8 +245,64 @@
     </form>
   </dialog>
 
+  <!-- 時間割の追加・編集ダイアログ -->
+  <dialog id="block-dialog">
+    <form id="block-form" class="dialog-form" method="dialog">
+      <h2 id="block-dialog-title">時間を追加</h2>
+      <div class="row">
+        <label>開始<input name="start" type="time" required></label>
+        <label>終了<input name="end" type="time" required></label>
+      </div>
+      <label>やるタスク<select name="taskId"></select></label>
+      <label id="block-label-field">内容<input name="label" maxlength="40" placeholder="例: 学校の課題、模試の見直し"></label>
+      <fieldset>
+        <legend>いつ</legend>
+        <div class="weekdays">
+          <label><input type="radio" name="repeat" value="weekly" checked>毎週</label>
+          <label><input type="radio" name="repeat" value="once">この日だけ</label>
+        </div>
+      </fieldset>
+      <div class="weekdays" id="block-days"></div>
+      <label id="block-date-field" hidden>日付<input name="date" type="date"></label>
+      <p class="form-error" id="block-form-error" role="alert"></p>
+      <div class="dialog-actions">
+        <button type="button" class="danger" id="btn-block-delete" hidden>削除</button>
+        <span class="spacer"></span>
+        <button type="button" id="btn-block-cancel">キャンセル</button>
+        <button type="submit" class="primary">保存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- 遅れの立て直しダイアログ -->
+  <dialog id="recover-dialog">
+    <form id="recover-form" class="dialog-form" method="dialog">
+      <h2 id="recover-title"></h2>
+      <div id="recover-body"></div>
+      <button type="button" class="link" id="btn-recover-ai">どれも合わないときは AI に相談する</button>
+      <div class="dialog-actions">
+        <span class="spacer"></span>
+        <button type="button" id="btn-recover-cancel">キャンセル</button>
+        <button type="submit" class="primary">この内容で変更</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- 確認ダイアログ（ほかのダイアログの上にも重ねて出す） -->
+  <dialog id="confirm-dialog">
+    <form method="dialog" class="dialog-form">
+      <p id="confirm-message"></p>
+      <div class="dialog-actions">
+        <span class="spacer"></span>
+        <button value="cancel" id="btn-confirm-cancel">キャンセル</button>
+        <button value="ok" class="primary" id="btn-confirm-ok">OK</button>
+      </div>
+    </form>
+  </dialog>
+
   <script src="js/planner.js"></script>
   <script src="js/textformat.js"></script>
+  <script src="js/schedule.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

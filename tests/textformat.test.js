@@ -235,3 +235,26 @@ test('タグを消すと復習タスクではなくなり、変更として数�
   assert.equal(b2.tags, undefined);
   assert.equal(b2.reviewOf, undefined);
 });
+
+test('consultPrompt は書式・今の計画（id 付き）・相談内容を入れる', () => {
+  const prompt = T.consultPrompt(sampleState(), TODAY, '  数学を週3日に減らしたい \n');
+  assert.match(prompt, /今日は 2026-10-22 です/);
+  assert.match(prompt, /- id: a1/);
+  assert.match(prompt, /コードブロックに書かなかった既存タスクはアプリから削除されます/);
+  assert.match(prompt, /# 私の相談\n数学を週3日に減らしたい\n$/);
+});
+
+test('consultPrompt はタスクが無ければその旨を書き、相談が空なら書き込み欄を残す', () => {
+  const prompt = T.consultPrompt({ tasks: [], logs: {} }, TODAY, '');
+  assert.match(prompt, /まだタスクは登録されていません/);
+  assert.match(prompt, /# 私の相談\n（ここに目標・教材・使える時間など、相談したいことを書く）/);
+});
+
+test('consultPrompt で作った計画のテキストは、そのまま読み込める', () => {
+  // チャットが今の計画を同じ書式で返した場合を想定し、プロンプト内の計画部分を読み込む
+  const prompt = T.consultPrompt(sampleState(), TODAY, '');
+  const plan = prompt.slice(prompt.indexOf('# 現在の計画'), prompt.indexOf('# 私の相談'));
+  const parsed = T.parse(plan, TODAY);
+  assert.deepEqual(parsed.errors, []);
+  assert.deepEqual(parsed.tasks.map((t) => t.id), ['a1', 'b2']);
+});
